@@ -53,8 +53,23 @@ A unit is the content's **grouper** (the page, the post, …). Two kinds of cont
 Content types **without versioning** get no automatic writes (writing would publish):
 translations wait until an editor chooses *Apply*, which writes them live.
 
-**Plugin fields** follow djangocms-translations' declarations, so an existing
-`DJANGOCMS_TRANSLATIONS_CONF` works as is:
+**Plugin fields** come from each plugin's **form**, as editors see it in the plugin admin (its
+own form or the generated model form, limited by `fields`/`fieldsets`, without `exclude` and
+read-only fields). What editors type into is what gets translated:
+
+- plain text fields (`forms.CharField`), except hidden ones and those named like identifiers,
+  code, CSS selectors or classes, icons or anchors;
+- rich text fields (`HTMLFormField`) as HTML.
+
+URL, slug, email, choice, link and attribute fields drop out by their form field type. This
+covers **djangocms-frontend**: its entangled forms store texts in the `config` JSON field
+(`config.heading`, `config.quote_content`, `config.name`, …), which are read and written in
+place; code blocks, heading ids and link targets aren't touched. Links embedded in rich text
+(djangocms-link's `LinkPlugin`, djangocms-frontend's `TextLinkPlugin`) are translated inside
+their sentence.
+
+djangocms-translations' declarations win, so an existing `DJANGOCMS_TRANSLATIONS_CONF` works as
+is:
 
 ```python
 DJANGOCMS_TRANSLATIONS_CONF = {
@@ -64,8 +79,8 @@ DJANGOCMS_TRANSLATIONS_CONF = {
 }
 ```
 
-- `fields`: exactly these fields; `excluded_fields`: leave these out. Without a declaration:
-  the plugin's text fields, except slugs, URLs, emails and fields with choices.
+- `fields`: exactly these fields; `excluded_fields`: leave these out. Names of JSON keys work
+  (`"heading"` means `config.heading` for djangocms-frontend), or dotted paths.
 - `text_field_child_label`: for plugins embedded in rich text (links in djangocms-text), this
   field is translated **inside the sentence** it appears in and written back to the plugin.
 
@@ -107,7 +122,6 @@ In `PONYGLOT["DJANGOCMS"]` (the core's settings apply too, see the `ponyglot` RE
 
 ## Not yet supported
 
-- Text inside JSON fields (djangocms-frontend's `config`).
 - Choosing email recipients per content object (the core's `NOTIFY_EDITORS` applies site-wide).
 
 ## Development

@@ -25,6 +25,13 @@ INSTALLED_APPS = [
     "sekizai",
     "djangocms_versioning",
     "djangocms_text",
+    "easy_thumbnails",
+    "filer",
+    "djangocms_link",
+    "djangocms_frontend",
+    "djangocms_frontend.contrib.content",
+    "djangocms_frontend.contrib.link",
+    "djangocms_frontend.contrib.utilities",
     "ponyglot",
     "djangocms_ponyglot",
     "tests.testapp",
@@ -61,4 +68,6 @@ TEMPLATES = [
 ]
 PONYGLOT = {"API_KEY": "pg_test", "API_URL": "https://api.example.test/v1"}
 # djangocms-translations' declarations are respected.
-DJANGOCMS_TRANSLATIONS_CONF = {"LinkPlugin": {"fields": ["name"], "text_field_child_label": "name"}}
+DJANGOCMS_TRANSLATIONS_CONF = {
+    "DeclaredLinkPlugin": {"fields": ["name"], "text_field_child_label": "name"}
+}

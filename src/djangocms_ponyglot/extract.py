@@ -18,7 +18,14 @@ from django.utils.text import slugify
 from ponyglot.adapters import Segment, detect_format, kind_for
 
 from . import keys as plugin_keys
-from .fields import child_label_field, content_fields, plugin_fields, slug_field
+from .fields import (
+    child_label_field,
+    content_fields,
+    get_value,
+    plugin_fields,
+    set_value,
+    slug_field,
+)
 
 _CHILD_TAG = re.compile(
     r'<cms-plugin\b[^>]*?\bid="(?P<id>[^"]+)"[^>]*>(?P<content>.*?)</cms-plugin>', re.DOTALL
@@ -43,8 +50,8 @@ def _embedded_labels(bound):
     for _, plugin, instance in bound.values():
         if not plugin.parent_id or plugin.parent_id not in bound:
             continue
-        label = child_label_field(plugin.plugin_type)
-        if label and hasattr(instance, label):
+        label = child_label_field(instance)
+        if label:
             embedded[plugin.pk] = label
     return embedded
 
@@ -59,7 +66,7 @@ def tags_to_keys(text, keys, bound, embedded):
             return match.group(0)
         label = ""
         if plugin_id in embedded:
-            label = escape(str(getattr(bound[plugin_id][2], embedded[plugin_id], "") or ""))
+            label = escape(str(get_value(bound[plugin_id][2], embedded[plugin_id]) or ""))
         return f'<cms-plugin id="{key}">{label}</cms-plugin>'
 
     return _CHILD_TAG.sub(replace, text)
@@ -78,9 +85,9 @@ def keys_to_tags(text, targets):
         if plugin is None:
             return ""
         instance, _ = plugin.get_plugin_instance()
-        label = child_label_field(plugin.plugin_type)
-        if instance is not None and label and match["content"].strip():
-            setattr(instance, label, unescape(strip_tags(match["content"])).strip())
+        label = child_label_field(instance) if instance is not None else None
+        if label and match["content"].strip():
+            set_value(instance, label, unescape(strip_tags(match["content"])).strip())
             instance.save()
         return plugin_to_tag(plugin)
 
@@ -110,16 +117,17 @@ def segments_of(ref, content, language):
     bound = _bound_plugins(content, language)
     embedded = _embedded_labels(bound)
     for plugin_id, (slot, plugin, instance) in bound.items():
-        for name, model_field in plugin_fields(instance).items():
+        for name, spec in plugin_fields(instance).items():
             if embedded.get(plugin_id) == name:
                 continue  # translated inside its parent's text
-            value = getattr(instance, name, "") or ""
-            if not str(value).strip():
+            value = get_value(instance, name)
+            if not isinstance(value, str) or not value.strip():
                 continue
-            value = str(value)
-            segment_format = detect_format(
-                model_field, value, f"{instance._meta.label_lower}.{name}"
-            )
+            if spec.html:
+                segment_format = "html"
+            else:
+                label = f"{instance._meta.label_lower}.{name}"
+                segment_format = detect_format(spec.model_field, value, label)
             if segment_format in _HTML:
                 value = tags_to_keys(value, keys, bound, embedded)
             result[f"plugin:{keys[plugin_id]}:{name}"] = Segment(
@@ -127,8 +135,8 @@ def segments_of(ref, content, language):
                 text=value,
                 format=segment_format,
                 field=name,
-                kind=kind_for(name) or "body",
-                max_length=getattr(model_field, "max_length", None),
+                kind=kind_for(name.rpartition(".")[2]) or "body",
+                max_length=spec.max_length,
                 parent_key=(
                     f"plugin:{keys[plugin.parent_id]}"
                     if plugin.parent_id in keys
@@ -148,7 +156,7 @@ def texts(ref, content, language):
             data[name] = str(getattr(content, name, "") or "")
     for plugin_id, (_, _, instance) in _bound_plugins(content, language).items():
         for name in plugin_fields(instance):
-            data[f"{plugin_id}:{name}"] = str(getattr(instance, name, "") or "")
+            data[f"{plugin_id}:{name}"] = str(get_value(instance, name) or "")
     return data
 
 
@@ -193,6 +201,6 @@ def write_values(ref, content, language, values):
                 continue
             if "<cms-plugin" in text:
                 text = keys_to_tags(text, targets)
-            setattr(instance, name, text)
+            set_value(instance, name, text)
         instance.save()
     return unaligned

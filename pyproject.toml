@@ -36,6 +36,7 @@ Documentation = "https://docs.ponyglot.app"
 
 [dependency-groups]
 dev = [
+  "djangocms-frontend>=2",
   "djangocms-text>=0.9",
   "djangocms-versioning>=2.7",
   "pytest>=8",

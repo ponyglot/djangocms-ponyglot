@@ -48,7 +48,7 @@ def fill(content, language="en"):
     """A text plugin embedding a link (its name travels inside the text), and a teaser."""
     placeholder = placeholder_of(content)
     text = add_plugin(placeholder, "TextPlugin", language, body="<p>Plans</p>")
-    link = add_plugin(placeholder, "LinkPlugin", language, target=text, name="per month")
+    link = add_plugin(placeholder, "DeclaredLinkPlugin", language, target=text, name="per month")
     text.body = (
         f'<p>€79 per site, <cms-plugin alt="Link" title="Link" id="{link.pk}">'
         "</cms-plugin>, cancel any time</p>"

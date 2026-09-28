@@ -160,7 +160,9 @@ def test_per_language_first_delivery_creates_a_draft(request, api, cloud, fixtur
     assert draft.slug in ("preise", "preise-erklart")
     assert "Agentur" in plugin_texts(draft, "de")
     body = next(t for t in plugin_texts(draft, "de") if "<p>" in t)
-    link = next(p for p in placeholder_of(draft).get_plugins("de") if p.plugin_type == "LinkPlugin")
+    link = next(
+        p for p in placeholder_of(draft).get_plugins("de") if p.plugin_type == "DeclaredLinkPlugin"
+    )
     assert f'id="{link.pk}"' in body and "79 € pro Site" in body
     assert link.get_plugin_instance()[0].name == "pro Monat"  # the label, from the sentence
     assert plugin_texts(ref.published("en"), "en")[0].startswith("<p>€79")  # source untouched
@@ -347,7 +349,7 @@ def test_unversioned_per_language_waits_and_apply_creates_the_language(
     assert (german.title, german.slug) == ("DE Pricing card", "de-pricing-card")
     assert "Agentur" in plugin_texts(german, "de")
     link = next(
-        p for p in placeholder_of(german).get_plugins("de") if p.plugin_type == "LinkPlugin"
+        p for p in placeholder_of(german).get_plugins("de") if p.plugin_type == "DeclaredLinkPlugin"
     )
     assert link.get_plugin_instance()[0].name == "pro Monat"
     assert plugin_texts(card_ref.published("en"), "en")[0].startswith("<p>€79")  # source intact

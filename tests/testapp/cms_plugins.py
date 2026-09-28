@@ -13,8 +13,8 @@ class TeaserPlugin(CMSPluginBase):
 
 
 @plugin_pool.register_plugin
-class LinkPlugin(CMSPluginBase):
+class DeclaredLinkPlugin(CMSPluginBase):
     model = Link
-    name = "Link"
+    name = "Declared link"
     render_template = "teaser.html"
     text_enabled = True

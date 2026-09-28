@@ -23,10 +23,19 @@ def options():
     return (getattr(settings, "PONYGLOT", {}) or {}).get("DJANGOCMS", {}) or {}
 
 
+# Defaults for common text-embedded link plugins (djangocms-link, djangocms-frontend): their
+# label is translated inside the sentence. Settings override these.
+DEFAULT_PLUGIN_CONF = {
+    "LinkPlugin": {"text_field_child_label": "name"},
+    "TextLinkPlugin": {"text_field_child_label": "name"},
+}
+
+
 def plugin_conf(plugin_type):
     """djangocms-translations' declaration for a plugin type, overridden by ours:
     `{"fields": [...], "excluded_fields": [...], "text_field_child_label": "..."}`."""
-    conf = dict(getattr(settings, "DJANGOCMS_TRANSLATIONS_CONF", {}).get(plugin_type, {}))
+    conf = dict(DEFAULT_PLUGIN_CONF.get(plugin_type, {}))
+    conf.update(getattr(settings, "DJANGOCMS_TRANSLATIONS_CONF", {}).get(plugin_type, {}))
     conf.update(options().get("PLUGINS", {}).get(plugin_type, {}))
     return conf
 

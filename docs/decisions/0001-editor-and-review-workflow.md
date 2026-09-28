@@ -103,7 +103,13 @@ is missing.
   every language delivered into the draft is unchanged and a new language has no plugins yet.
 - **Unversioned content types** never get automatic writes (writing would publish): results
   wait as pending suggestions until an editor applies them, which writes them live.
-- **Plugin fields follow djangocms-translations** (`DJANGOCMS_TRANSLATIONS_CONF`: `fields`,
+- **Plugin fields come from plugin forms** (owner, 2026-09-29), for every plugin: the form the
+  plugin admin shows (its own or django CMS' generated model form, limited by `fields`/
+  `fieldsets`, without `exclude`/`readonly_fields`). Plain `CharField`s that aren't hidden or
+  named like identifiers/code/selectors/classes/icons/anchors are prose; `HTMLFormField`s are
+  rich text. Entangled forms (djangocms-frontend) map to JSON keys, read and written in place
+  (`config.heading`). Model fields are only the fallback when no form can be built.
+- **Declarations follow djangocms-translations** (`DJANGOCMS_TRANSLATIONS_CONF`: `fields`,
   `excluded_fields`, `text_field_child_label`), overridable in `PONYGLOT["DJANGOCMS"]["PLUGINS"]`.
   A declared child label is translated inside its parent's text and written back to the child.
 - **Stable plugin keys** (`keys.py`): djangocms-versioning copies plugins with new ids on every
@@ -116,4 +122,4 @@ is missing.
   published text) on publish, `rejected` on discard/archive; `pending` while waiting for "Apply".
 - The status sideframe and actions are admin views keyed by the unit (no URL configuration
   needed); reading the status calls the cloud with a 10-second timeout.
-- Not yet: JSON-field plugins (djangocms-frontend), per-object email recipients.
+- Not yet: per-object email recipients.
