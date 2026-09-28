@@ -31,7 +31,7 @@ def test_toolbar_menu_on_a_page(staff, page, page_ref, api, cloud):
     assert "Ponyglot" in html and status_url(page_ref).removeprefix("/en") in html
 
 
-@pytest.mark.parametrize("fixture", ["page_ref", "article_ref", "note_ref", "box_ref"])
+@pytest.mark.parametrize("fixture", ["page_ref", "article_ref", "note_ref", "box_ref", "card_ref"])
 def test_status_page_for_every_content_type(request, staff, views_cloud, api, fixture):
     ref = request.getfixturevalue(fixture)
     assert "been synced yet" in staff.get(status_url(ref)).content.decode()
@@ -43,6 +43,21 @@ def test_status_page_for_every_content_type(request, staff, views_cloud, api, fi
         assert "published together" in html
     if fixture == "box_ref":
         assert "applying publishes them" in html
+
+
+@pytest.mark.parametrize("fixture", ["article_ref", "note_ref", "box_ref", "card_ref"])
+def test_toolbar_menu_on_other_content_types(request, staff, fixture):
+    """Rendered through django CMS' own preview endpoint for any toolbar-enabled model
+    (published versioned content can't be opened for editing without creating a draft)."""
+    from cms.toolbar.utils import get_object_preview_url
+
+    ref = request.getfixturevalue(fixture)
+    content = ref.current("en") if ref.content_type.per_language else ref.current()
+    response = staff.get(get_object_preview_url(content, language="en"))
+    assert response.status_code == 200
+    html = response.content.decode()
+    assert "Ponyglot" in html
+    assert status_url(ref).removeprefix("/en") in html
 
 
 def test_status_shows_held_back(staff, views_cloud, api, page_ref):

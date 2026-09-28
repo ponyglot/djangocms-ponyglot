@@ -19,7 +19,7 @@ from djangocms_ponyglot.contenttypes import content_types, parse_key
 from djangocms_ponyglot.delivery import texts_hash, write
 from djangocms_ponyglot.extract import segments_of
 from djangocms_ponyglot.models import DraftDelivery
-from tests.testapp.models import ArticleContent, NoteContent
+from tests.testapp.models import ArticleContent, CardContent, NoteContent
 
 from .conftest import placeholder_of, publish
 
@@ -102,6 +102,7 @@ def test_content_types_and_modes():
         "testapp.articlecontent": (True, True, "article"),
         "testapp.notecontent": (True, False, "note"),
         "testapp.box": (False, False, None),
+        "testapp.cardcontent": (False, True, "card"),
     }
 
 
@@ -136,8 +137,8 @@ def test_content_fields_are_configurable(article_ref, settings):
     assert "lead" not in texts_in(article_ref, content, "en")
 
 
-def test_keys_parse_back(page_ref, article_ref, note_ref, box_ref):
-    for ref in (page_ref, article_ref, note_ref, box_ref):
+def test_keys_parse_back(page_ref, article_ref, note_ref, box_ref, card_ref):
+    for ref in (page_ref, article_ref, note_ref, box_ref, card_ref):
         assert parse_key(ref.key) == ref
     assert parse_key("djangocms:unknown.model:1") is None
     assert parse_key("djangocms:cms.pagecontent:x") is None
@@ -330,6 +331,64 @@ def test_unversioned_source_changes_are_noticed(api, cloud, box_ref):
     box.delete()
     sync.run(api)
     assert cloud.deleted == [box_ref.key]
+
+
+def test_unversioned_per_language_waits_and_apply_creates_the_language(
+    api, cloud, card_ref, editor
+):
+    synced(api, cloud, card_ref)
+    assert not CardContent.objects.filter(language="de").exists()  # nothing written
+    pending = list(Suggestion.objects.filter(status="pending"))
+    assert {s.field for s in pending} >= {"title"} and len(pending) == 4
+
+    assert suggestions.apply(pending, editor).applied == 4
+
+    german = CardContent.objects.get(card_id=card_ref.grouper_id, language="de")
+    assert (german.title, german.slug) == ("DE Pricing card", "de-pricing-card")
+    assert "Agentur" in plugin_texts(german, "de")
+    link = next(
+        p for p in placeholder_of(german).get_plugins("de") if p.plugin_type == "LinkPlugin"
+    )
+    assert link.get_plugin_instance()[0].name == "pro Monat"
+    assert plugin_texts(card_ref.published("en"), "en")[0].startswith("<p>€79")  # source intact
+    assert set(Suggestion.objects.values_list("status", flat=True)) == {"applied"}
+    sync.run(api)
+    assert len(cloud.reviews) == 4 and {r["outcome"] for r in cloud.reviews} == {"approved"}
+
+    # A later translation is applied to the existing German content, live.
+    cloud.add_result(card_ref.key, "title", "de", "Preiskarte", source="Pricing card")
+    sync.run(api)
+    suggestions.apply(Suggestion.objects.filter(status="pending"), editor)
+    german.refresh_from_db()
+    assert german.title == "Preiskarte"
+    assert CardContent.objects.filter(language="de").count() == 1
+
+
+def test_unversioned_per_language_only_source_changes_count(api, cloud, card_ref, editor):
+    sync.backfill()
+    sync.run(api)
+    state = SyncState.objects.get(external_key=card_ref.key)
+    assert not state.dirty
+    german = CardContent.objects.create(card_id=card_ref.grouper_id, language="de", title="Karte")
+    add_plugin(placeholder_of(german), "TeaserPlugin", "de", title="Agentur")
+    state.refresh_from_db()
+    assert not state.dirty  # target-language edits don't touch the source
+
+    source = card_ref.published("en")
+    source.title = "Pricing card (new)"
+    source.save()
+    state.refresh_from_db()
+    assert state.dirty
+    sync.run(api)
+    assert cloud.units[card_ref.key]["segments"][0]["text"] == "Pricing card (new)"
+
+    add_plugin(placeholder_of(source), "TeaserPlugin", "en", title="Enterprise")
+    assert SyncState.objects.get(external_key=card_ref.key).dirty
+    sync.run(api)
+
+    card_ref.grouper.delete()  # the grouper: the unit is removed
+    sync.run(api)
+    assert cloud.deleted == [card_ref.key]
 
 
 # --- Structure, exclusion, existing translations -------------------------------------------

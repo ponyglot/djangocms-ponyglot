@@ -6,7 +6,15 @@ from ponyglot.client import Client
 from ponyglot.testing import FakeCloud
 
 from djangocms_ponyglot.contenttypes import content_types
-from tests.testapp.models import Article, ArticleContent, Box, Note, NoteContent
+from tests.testapp.models import (
+    Article,
+    ArticleContent,
+    Box,
+    Card,
+    CardContent,
+    Note,
+    NoteContent,
+)
 
 
 @pytest.fixture
@@ -98,3 +106,11 @@ def box_ref(db):
     box = Box.objects.create(name="Pricing box")
     fill(box)
     return ref_of(box)
+
+
+@pytest.fixture
+def card_ref(db):
+    card = Card.objects.create()
+    content = CardContent.objects.create(card=card, language="en", title="Pricing card")
+    fill(content)
+    return ref_of(content)

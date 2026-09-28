@@ -2,7 +2,7 @@ from cms.app_base import CMSAppConfig
 from django.template.response import TemplateResponse
 from djangocms_versioning.datastructures import VersionableItem
 
-from .models import ArticleContent, Box, NoteContent
+from .models import ArticleContent, Box, CardContent, NoteContent
 
 
 def render(request, obj):
@@ -15,6 +15,7 @@ class TestAppConfig(CMSAppConfig):
         (ArticleContent, render, "article"),
         (NoteContent, render, "note"),
         (Box, render),
+        (CardContent, render, "card"),
     ]
     djangocms_versioning_enabled = True
     versioning = [

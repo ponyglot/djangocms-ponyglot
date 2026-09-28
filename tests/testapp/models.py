@@ -70,3 +70,24 @@ class Box(models.Model):
 
     def get_template(self):
         return "content.html"
+
+
+# Unversioned, one content object per language (the grouper comes from the toolbar
+# registration): nothing is written without an editor's "apply".
+class Card(models.Model):
+    def __str__(self):
+        return f"card {self.pk}"
+
+
+class CardContent(models.Model):
+    card = models.ForeignKey(Card, on_delete=models.CASCADE, related_name="contents")
+    language = models.CharField(max_length=15)
+    title = models.CharField(max_length=200)
+    slug = models.SlugField(blank=True)
+    placeholders = PlaceholderRelationField()
+
+    def __str__(self):
+        return self.title
+
+    def get_template(self):
+        return "content.html"

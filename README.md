@@ -117,5 +117,7 @@ make install   # uv sync (the core from ../ponyglot)
 make check     # ruff, migrations check, tests (SQLite)
 ```
 
-The tests cover pages, a per-language custom model, a shared-language model and an unversioned
-model. Design: [docs/decisions](docs/decisions/). License: BSD-3-Clause.
+The tests cover every combination: versioned and unversioned content types, each with one
+content object per language and with all languages in one object (pages and a custom model;
+a shared-language model; an unversioned per-language model; an unversioned model without a
+grouper), including the toolbar on each. Design: [docs/decisions](docs/decisions/). License: BSD-3-Clause.

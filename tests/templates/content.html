@@ -1,1 +1,3 @@
-{% load cms_tags %}{% for placeholder in object.placeholders.all %}{% render_placeholder placeholder %}{% endfor %}
+{% load cms_tags sekizai_tags %}<!doctype html>
+<html><head>{% render_block "css" %}</head>
+<body>{% cms_toolbar %}{% for placeholder in object.placeholders.all %}{% render_placeholder placeholder %}{% endfor %}{% render_block "js" %}</body></html>
