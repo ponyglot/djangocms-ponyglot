@@ -4,16 +4,24 @@ build-backend = "uv_build"
 
 [project]
 name = "djangocms-ponyglot"
-version = "0.0.1"
+version = "0.1.0.dev0"
 description = "django CMS connector for Ponyglot: translate pages and plugins with glossary, translation memory and delta sync."
 readme = "README.md"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [{ name = "Fabian Braun", email = "hello@ponyglot.app" }]
 requires-python = ">=3.10"
+dependencies = [
+  "Django>=5.2",
+  "django-cms>=5.1",
+  "djangocms-versioning>=2.7",
+  "ponyglot>=0.1.0.dev0",
+]
 classifiers = [
-  "Development Status :: 1 - Planning",
+  "Development Status :: 2 - Pre-Alpha",
   "Framework :: Django",
+  "Framework :: Django :: 5.2",
+  "Framework :: Django :: 6.0",
   "Framework :: Django CMS",
   "Intended Audience :: Developers",
   "Programming Language :: Python :: 3",
@@ -22,3 +30,33 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://ponyglot.app"
+Documentation = "https://docs.ponyglot.app"
+
+[dependency-groups]
+dev = [
+  "djangocms-text>=0.9",
+  "pytest>=8",
+  "pytest-django>=4.9",
+  "ruff>=0.12",
+]
+
+# Until the core is released, develop against the checkout next to this repository.
+[tool.uv.sources]
+ponyglot = { path = "../ponyglot", editable = true }
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.settings"
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "DJ", "S", "SIM"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106"]
+"src/djangocms_ponyglot/migrations/**" = ["E501"]
+"tests/testapp/migrations/**" = ["E501"]

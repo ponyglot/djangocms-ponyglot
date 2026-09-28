@@ -1,0 +1,89 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% block breadcrumbs %}{% endblock %}
+{% block extrastyle %}{{ block.super }}
+<style>
+  .ponyglot td, .ponyglot th { padding: 4px 8px; }
+  .ponyglot .held, .ponyglot .qa-error { color: var(--error-fg, #ba2121); }
+  .ponyglot form { display: inline-block; margin: 0 8px 8px 0; }
+  .ponyglot section { margin-bottom: 20px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="ponyglot">
+  {% if exclusion and exclusion.all_languages %}
+    <p class="errornote">{% translate "This page is excluded from translation." %}</p>
+    <form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' page.pk %}">{% csrf_token %}
+      <input type="hidden" name="include" value="1"><button type="submit" class="button">{% translate "Translate it again" %}</button>
+    </form>
+  {% else %}
+  <section>
+    <h2>{% translate "Status" %}</h2>
+    {% if cloud_error %}<p class="errornote">{{ cloud_error }}</p>{% endif %}
+    {% if cloud_status %}
+      <p>{% blocktranslate with n=cloud_status.segments_needing_work total=cloud_status.segments_total %}{{ n }} of {{ total }} segments need work.{% endblocktranslate %}</p>
+      <table>
+        <tr><th>{% translate "Segment" %}</th>{% for lang in cloud_status.languages %}<th>{{ lang.code|upper }}</th>{% endfor %}</tr>
+        {% for row in rows %}
+          <tr><td><code>{{ row.key|truncatechars:40 }}</code></td>
+            {% for cell in row.cells %}
+              <td class="{% if cell.held %}held{% endif %}" title="{% for issue in cell.issues %}{{ issue.message }} {% endfor %}">
+                {% if cell.held %}{% translate "waiting for QA" %}{% else %}{% for key, label in symbols.items %}{% if key == cell.state %}{{ label }}{% endif %}{% endfor %}{% endif %}
+                {% for issue in cell.issues %}{% if issue.severity == "error" and not cell.held %}<span class="qa-error">⚠</span>{% endif %}{% endfor %}
+              </td>
+            {% endfor %}
+          </tr>
+        {% endfor %}
+      </table>
+    {% endif %}
+  </section>
+
+  {% if held_back %}
+  <section>
+    <h2>{% translate "Waiting for a QA review" %}</h2>
+    <p>{% translate "These translations were held back by a quality check. They arrive once your QA team has resolved them in Ponyglot." %}</p>
+    <ul>{% for item in held_back %}<li>{{ item.language|upper }} · <code>{{ item.key|truncatechars:40 }}</code>: {% for issue in item.issues %}{{ issue.message }} {% endfor %}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>{% translate "Translate this page" %}</h2>
+    <form method="post" action="{% url 'admin:djangocms_ponyglot_translate' page.pk %}">{% csrf_token %}
+      {% for lang in languages %}{% if not lang.excluded %}<label><input type="checkbox" name="languages" value="{{ lang.code }}" checked> {{ lang.code|upper }}</label> {% endif %}{% endfor %}
+      <p><label><input type="radio" name="source" value="published" checked> {% translate "published version" %}</label>
+         <label><input type="radio" name="source" value="draft"> {% translate "current draft" %}</label></p>
+      <button type="submit" class="button default">{% translate "Translate what changed" %}</button>
+    </form>
+  </section>
+
+  {% for lang in languages %}
+    {% if lang.waiting or lang.unaligned %}
+    <section>
+      <h2>{{ lang.code|upper }}</h2>
+      {% if lang.waiting %}
+        <p>{% blocktranslate count n=lang.waiting %}{{ n }} translation is waiting: someone edited the draft, so it wasn't overwritten.{% plural %}{{ n }} translations are waiting: someone edited the draft, so they weren't overwritten.{% endblocktranslate %}</p>
+        <form method="post" action="{% url 'admin:djangocms_ponyglot_apply' page.pk lang.code %}">{% csrf_token %}
+          <button type="submit" class="button">{% translate "Apply to current draft" %}</button>
+        </form>
+      {% endif %}
+      {% if lang.unaligned %}
+        <p class="errornote">{% blocktranslate count n=lang.unaligned|length %}{{ n }} source text has no counterpart in the draft's plugins (the structure differs).{% plural %}{{ n }} source texts have no counterpart in the draft's plugins (the structure differs).{% endblocktranslate %}</p>
+        <form method="post" action="{% url 'admin:djangocms_ponyglot_copy_tree' page.pk lang.code %}">{% csrf_token %}
+          <button type="submit" class="button">{% translate "Copy plugin tree from source" %}</button>
+        </form>
+      {% endif %}
+    </section>
+    {% endif %}
+  {% endfor %}
+
+  <section>
+    <h2>{% translate "Exclude" %}</h2>
+    <form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' page.pk %}">{% csrf_token %}
+      {% for lang in languages %}<label><input type="checkbox" name="languages" value="{{ lang.code }}"{% if lang.excluded %} checked{% endif %}> {{ lang.code|upper }}</label> {% endfor %}
+      <button type="submit" class="button">{% translate "Exclude selected languages (none: all)" %}</button>
+    </form>
+    {% if exclusion %}<form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' page.pk %}">{% csrf_token %}<input type="hidden" name="include" value="1"><button type="submit" class="button">{% translate "Remove exclusion" %}</button></form>{% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

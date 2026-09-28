@@ -1,0 +1,1 @@
+<div>{{ instance.title }}{% for plugin in instance.child_plugin_instances %}{% load cms_tags %}{% render_plugin plugin %}{% endfor %}</div>
