@@ -1,19 +1,23 @@
 from django.apps import apps
-from django.core.checks import Error, register
+from django.core.checks import Error, Info, register
 
 
 @register()
 def check_installed(app_configs, **kwargs):
     messages = []
-    for app, why in (
-        ("djangocms_versioning", "translations are delivered as drafts"),
-        ("ponyglot", "it does the sync"),
-    ):
-        if not apps.is_installed(app):
-            messages.append(
-                Error(
-                    f"djangocms-ponyglot needs {app!r} in INSTALLED_APPS: {why}.",
-                    id="djangocms_ponyglot.E001",
-                )
+    if not apps.is_installed("ponyglot"):
+        messages.append(
+            Error(
+                "djangocms-ponyglot needs 'ponyglot' in INSTALLED_APPS: it does the sync.",
+                id="djangocms_ponyglot.E001",
             )
+        )
+    if not apps.is_installed("djangocms_versioning"):
+        messages.append(
+            Info(
+                "djangocms-versioning isn't installed: translations wait as suggestions until "
+                "an editor applies them, which writes (and so publishes) them directly.",
+                id="djangocms_ponyglot.I001",
+            )
+        )
     return messages

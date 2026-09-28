@@ -12,11 +12,13 @@
 {% block content %}
 <div class="ponyglot">
   {% if exclusion and exclusion.all_languages %}
-    <p class="errornote">{% translate "This page is excluded from translation." %}</p>
-    <form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' page.pk %}">{% csrf_token %}
+    <p class="errornote">{% translate "This content is excluded from translation." %}</p>
+    <form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' ref.key %}">{% csrf_token %}
       <input type="hidden" name="include" value="1"><button type="submit" class="button">{% translate "Translate it again" %}</button>
     </form>
   {% else %}
+  {% if not per_language %}<p class="help">{% translate "All languages of this content are published together." %}</p>{% endif %}
+  {% if not versioned %}<p class="help">{% translate "This content type isn't versioned: translations wait until you apply them, and applying publishes them." %}</p>{% endif %}
   <section>
     <h2>{% translate "Status" %}</h2>
     {% if cloud_error %}<p class="errornote">{{ cloud_error }}</p>{% endif %}
@@ -47,8 +49,8 @@
   {% endif %}
 
   <section>
-    <h2>{% translate "Translate this page" %}</h2>
-    <form method="post" action="{% url 'admin:djangocms_ponyglot_translate' page.pk %}">{% csrf_token %}
+    <h2>{% translate "Translate" %}</h2>
+    <form method="post" action="{% url 'admin:djangocms_ponyglot_translate' ref.key %}">{% csrf_token %}
       {% for lang in languages %}{% if not lang.excluded %}<label><input type="checkbox" name="languages" value="{{ lang.code }}" checked> {{ lang.code|upper }}</label> {% endif %}{% endfor %}
       <p><label><input type="radio" name="source" value="published" checked> {% translate "published version" %}</label>
          <label><input type="radio" name="source" value="draft"> {% translate "current draft" %}</label></p>
@@ -61,14 +63,14 @@
     <section>
       <h2>{{ lang.code|upper }}</h2>
       {% if lang.waiting %}
-        <p>{% blocktranslate count n=lang.waiting %}{{ n }} translation is waiting: someone edited the draft, so it wasn't overwritten.{% plural %}{{ n }} translations are waiting: someone edited the draft, so they weren't overwritten.{% endblocktranslate %}</p>
-        <form method="post" action="{% url 'admin:djangocms_ponyglot_apply' page.pk lang.code %}">{% csrf_token %}
-          <button type="submit" class="button">{% translate "Apply to current draft" %}</button>
+        <p>{% blocktranslate count n=lang.waiting %}{{ n }} translation is waiting to be applied.{% plural %}{{ n }} translations are waiting to be applied.{% endblocktranslate %}</p>
+        <form method="post" action="{% url 'admin:djangocms_ponyglot_apply' ref.key lang.code %}">{% csrf_token %}
+          <button type="submit" class="button">{% if versioned %}{% translate "Apply to current draft" %}{% else %}{% translate "Apply (publishes)" %}{% endif %}</button>
         </form>
       {% endif %}
       {% if lang.unaligned %}
         <p class="errornote">{% blocktranslate count n=lang.unaligned|length %}{{ n }} source text has no counterpart in the draft's plugins (the structure differs).{% plural %}{{ n }} source texts have no counterpart in the draft's plugins (the structure differs).{% endblocktranslate %}</p>
-        <form method="post" action="{% url 'admin:djangocms_ponyglot_copy_tree' page.pk lang.code %}">{% csrf_token %}
+        <form method="post" action="{% url 'admin:djangocms_ponyglot_copy_tree' ref.key lang.code %}">{% csrf_token %}
           <button type="submit" class="button">{% translate "Copy plugin tree from source" %}</button>
         </form>
       {% endif %}
@@ -78,11 +80,11 @@
 
   <section>
     <h2>{% translate "Exclude" %}</h2>
-    <form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' page.pk %}">{% csrf_token %}
+    <form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' ref.key %}">{% csrf_token %}
       {% for lang in languages %}<label><input type="checkbox" name="languages" value="{{ lang.code }}"{% if lang.excluded %} checked{% endif %}> {{ lang.code|upper }}</label> {% endfor %}
       <button type="submit" class="button">{% translate "Exclude selected languages (none: all)" %}</button>
     </form>
-    {% if exclusion %}<form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' page.pk %}">{% csrf_token %}<input type="hidden" name="include" value="1"><button type="submit" class="button">{% translate "Remove exclusion" %}</button></form>{% endif %}
+    {% if exclusion %}<form method="post" action="{% url 'admin:djangocms_ponyglot_exclude' ref.key %}">{% csrf_token %}<input type="hidden" name="include" value="1"><button type="submit" class="button">{% translate "Remove exclusion" %}</button></form>{% endif %}
   </section>
   {% endif %}
 </div>

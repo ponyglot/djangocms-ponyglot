@@ -191,13 +191,18 @@ dependencies = [
     { name = "django", version = "5.2.17", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "django", version = "6.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "django-cms" },
-    { name = "djangocms-versioning" },
     { name = "ponyglot" },
+]
+
+[package.optional-dependencies]
+versioning = [
+    { name = "djangocms-versioning" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "djangocms-text" },
+    { name = "djangocms-versioning" },
     { name = "pytest" },
     { name = "pytest-django" },
     { name = "ruff" },
@@ -207,13 +212,15 @@ dev = [
 requires-dist = [
     { name = "django", specifier = ">=5.2" },
     { name = "django-cms", specifier = ">=5.1" },
-    { name = "djangocms-versioning", specifier = ">=2.7" },
+    { name = "djangocms-versioning", marker = "extra == 'versioning'", specifier = ">=2.7" },
     { name = "ponyglot", editable = "../ponyglot" },
 ]
+provides-extras = ["versioning"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "djangocms-text", specifier = ">=0.9" },
+    { name = "djangocms-versioning", specifier = ">=2.7" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-django", specifier = ">=4.9" },
     { name = "ruff", specifier = ">=0.12" },

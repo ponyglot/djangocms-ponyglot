@@ -12,21 +12,25 @@ published automatically. CMS content lands as drafts. Editors approve."
 
 ## Building blocks
 
-- **Unit** = a page's source-language `PageContent`. **Segments**: title, menu title, meta
-  description and the text fields of every plugin (`plugin:<id>:<field>`), with `position` and
-  `parent_key` so the target tree can mirror the source.
-- **Target** = the page's `PageContent` in another language, with versions. djangocms-versioning
-  allows one draft per page and language; published versions are read-only.
+- **Unit** = the grouper of any frontend-editable content type (a page, a post, an alias, a
+  custom object), in the source language. **Segments**: the content model's translated fields
+  (for content types with one object per language) and the translated plugin fields
+  (`plugin:<key>:<field>`), with `position` and `parent_key` so the target tree can mirror the
+  source. See *Implementation* for both modes (one object per language, or all languages in
+  one object).
+- **Target** = the content in another language, with versions: its own content object, or the
+  target-language plugins of the shared object. djangocms-versioning allows one draft per
+  grouping; published versions are read-only.
 - **Approval = publishing** the target version.
 
 ## Decisions (owner, 2026-09-28)
 
 1. **Source: the published version** by default; "Translate current draft" is an explicit action.
-2. **Translation on request**: toolbar "Translate this page…" (languages, estimate for large
+2. **Translation on request**: toolbar "Translate…" (languages, estimate for large
    jobs) and "Translate everything stale" (site-wide, admins). No automatic translation on
    publish in the first version.
-3. **Pages are delivered in one piece** per language: a draft is only written once every
-   segment of the page for that language is ready (cloud ADR 0014).
+3. **Units are delivered in one piece** per language: a draft is only written once every
+   segment of the unit for that language is ready (cloud ADR 0014).
 4. **Existing drafts are never overwritten.** If a person edited the target draft after the
    last delivery, the translation waits; the toolbar says "Translation waiting" with "Apply to
    current draft".
@@ -41,7 +45,7 @@ published automatically. CMS content lands as drafts. Editors approve."
 
 ## Editor workflow
 
-1. **Status everywhere**: the toolbar's Ponyglot menu shows the page's matrix per language
+1. **Status everywhere**: the toolbar's Ponyglot menu shows the content's matrix per language
    (✓ / stale / in review / missing / waiting for QA / QA issue).
 2. **Request**: editor chooses languages; only missing and stale segments are sent.
 3. **Delivery** (next sync, in one piece per language):
@@ -75,31 +79,41 @@ is missing.
 ## Notifications
 
 - **Editors** (known to the connector): toolbar and sideframe always; optional email "Translation
-  ready for review" / "QA issue in your draft" to the page's last editor through the site's own
+  ready for review" / "QA issue in your draft" to the content's last editor through the site's own
   email setup (`PONYGLOT["NOTIFY_EDITORS"]`, default off) *[owner: default]*.
 - **QA people** (known to the cloud): email when something needs attention, immediately or as a
   daily summary, per member setting; dashboard badge.
 
 ## Consequences
 
-- Needs cloud work before the connector can deliver pages: whole-page delivery, QA modes,
+- Needs cloud work before the connector can deliver content: whole-unit delivery, QA modes,
   held-back segments in the API, flagged delivery, re-checking approved text, notifications.
 - Needs core work: exclusions, QA error display for suggestions, editor notifications.
 
-## Implementation (2026-09-28)
+## Implementation (2026-09-29)
 
+- **Any frontend-editable content type** (owner, 2026-09-29), not only pages: the models in
+  django CMS' `cms_toolbar_enabled_models`, described by djangocms-versioning where versioned
+  (grouper, grouping fields, copy function). A unit is the grouper:
+  `djangocms:<content model>:<grouper id>`.
+- **Two modes**: one content object per language (`language` is a versioning grouping field;
+  pages, posts; published per language) and all languages in one content object (plugins carry
+  their language; the object's draft gets the target-language plugins; published together, so
+  publishing approves every language delivered into it). For shared drafts, "untouched" means
+  every language delivered into the draft is unchanged and a new language has no plugins yet.
+- **Unversioned content types** never get automatic writes (writing would publish): results
+  wait as pending suggestions until an editor applies them, which writes them live.
+- **Plugin fields follow djangocms-translations** (`DJANGOCMS_TRANSLATIONS_CONF`: `fields`,
+  `excluded_fields`, `text_field_child_label`), overridable in `PONYGLOT["DJANGOCMS"]["PLUGINS"]`.
+  A declared child label is translated inside its parent's text and written back to the child.
 - **Stable plugin keys** (`keys.py`): djangocms-versioning copies plugins with new ids on every
-  version, so segments use `plugin:<key>:<field>`. Keys follow copies (on draft creation) and
-  are shared by a translated plugin and its source plugin; existing translated pages are
-  matched by structure (slot, plugin type, tree position).
-- djangocms-text's embedded child plugins travel as `<cms-plugin id="<key>"></cms-plugin>` and
-  are mapped back to the target's own child plugins.
-- Translations are tracked as core `Suggestion`s: `drafted` once written into a draft,
-  `applied` (with the published text) on publish, `rejected` on discard/archive; `pending`
-  while waiting for "Apply to current draft".
-- A draft counts as untouched while the hash of its texts equals the one recorded at delivery
-  (`DraftDelivery`).
-- The status sideframe and actions are admin views (no URL configuration needed); reading the
-  status calls the cloud with a 10-second timeout.
-- Not yet: JSON-field plugins (djangocms-frontend), aliases/static placeholders, per-page email
-  recipients.
+  version, so segments use `plugin:<key>:<field>`. Keys follow copies (on draft creation) and are
+  shared by a translated plugin and its source plugin; existing translations are matched by
+  structure (slot, plugin type, tree position) per content object and language.
+- New per-language content: pages through django CMS' API (URLs), others through the content
+  type's versioning copy function; the slug follows the translated title.
+- Translations are tracked as core `Suggestion`s: `drafted` once in a draft, `applied` (with the
+  published text) on publish, `rejected` on discard/archive; `pending` while waiting for "Apply".
+- The status sideframe and actions are admin views keyed by the unit (no URL configuration
+  needed); reading the status calls the cloud with a 10-second timeout.
+- Not yet: JSON-field plugins (djangocms-frontend), per-object email recipients.

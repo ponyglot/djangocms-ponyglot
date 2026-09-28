@@ -6,32 +6,39 @@ every edit. Segments use a key instead:
 - a new plugin gets a fresh key when first seen (`ensure_keys`),
 - a copied version inherits its original's keys (`inherit_keys` on draft creation),
 - a target-language plugin shares the key of the source plugin it translates: it was either
-  copied from it by the connector, or matched by structure when a site already had translated
-  pages (`inherit_keys` from the source content).
+  copied from it by the connector, or matched by structure when content was already translated.
 
-Structure means: same placeholder slot, same plugin type, same position in the plugin tree.
+A plugin tree is identified by a content object and a language: per-language content types
+have one language per object, shared ones hold all languages in the same placeholders.
+Structure means: same placeholder slot, same plugin type, same position in the tree.
 """
 
 import uuid
 from collections import defaultdict
 
+from cms.models import Placeholder
+
 from .models import PluginKey
 
 
-def plugins_by_slot(content):
-    """`{slot: [plugins in tree order]}` for a page content (plain CMSPlugin instances)."""
-    result = {}
-    for placeholder in content.get_placeholders():
-        result[placeholder.slot] = list(
-            placeholder.get_plugins(language=content.language).order_by("position", "pk")
+def placeholders(content):
+    return list(Placeholder.objects.get_for_obj(content))
+
+
+def plugins_by_slot(content, language):
+    """`{slot: [plugins in tree order]}` (plain CMSPlugin instances)."""
+    return {
+        placeholder.slot: list(
+            placeholder.get_plugins(language=language).order_by("position", "pk")
         )
-    return result
+        for placeholder in placeholders(content)
+    }
 
 
-def signatures(content):
+def signatures(content, language):
     """`{plugin id: (slot, plugin type, path)}`; path = sibling indexes from the root."""
     result = {}
-    for slot, plugins in plugins_by_slot(content).items():
+    for slot, plugins in plugins_by_slot(content, language).items():
         children = defaultdict(list)
         for plugin in plugins:
             children[plugin.parent_id].append(plugin)
@@ -59,15 +66,17 @@ def _assign(pairs):
     )
 
 
-def inherit_keys(original, copy):
-    """Give plugins of `copy` without a key the key of their structural counterpart in
-    `original` (a version it was copied from, or the source-language content)."""
-    by_signature = {}
-    original_keys = keys_for(sig for sig in signatures(original))
-    for plugin_id, signature in signatures(original).items():
-        if plugin_id in original_keys:
-            by_signature[signature] = original_keys[plugin_id]
-    copy_signatures = signatures(copy)
+def inherit_keys(original, original_language, copy, copy_language):
+    """Give plugins of (`copy`, `copy_language`) without a key the key of their structural
+    counterpart in (`original`, `original_language`)."""
+    original_signatures = signatures(original, original_language)
+    original_keys = keys_for(original_signatures)
+    by_signature = {
+        signature: original_keys[plugin_id]
+        for plugin_id, signature in original_signatures.items()
+        if plugin_id in original_keys
+    }
+    copy_signatures = signatures(copy, copy_language)
     existing = keys_for(copy_signatures)
     taken = set(existing.values())
     pairs = []
@@ -80,9 +89,9 @@ def inherit_keys(original, copy):
     return len(pairs)
 
 
-def ensure_keys(content):
-    """Keys for all plugins of `content`, creating missing ones. `{plugin id: key}`."""
-    plugin_ids = list(signatures(content))
+def ensure_keys(content, language):
+    """Keys for all plugins of the tree, creating missing ones. `{plugin id: key}`."""
+    plugin_ids = list(signatures(content, language))
     keys = keys_for(plugin_ids)
     missing = [
         (plugin_id, uuid.uuid4().hex[:16]) for plugin_id in plugin_ids if plugin_id not in keys
@@ -92,7 +101,7 @@ def ensure_keys(content):
     return keys
 
 
-def plugins_by_key(content):
-    """`{key: plugin}` for the plugins of `content` that have a key."""
-    plugins = {p.pk: p for group in plugins_by_slot(content).values() for p in group}
+def plugins_by_key(content, language):
+    """`{key: plugin}` for the plugins of the tree that have a key."""
+    plugins = {p.pk: p for group in plugins_by_slot(content, language).values() for p in group}
     return {key: plugins[plugin_id] for plugin_id, key in keys_for(plugins).items()}

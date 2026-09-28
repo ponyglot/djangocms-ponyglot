@@ -8,20 +8,27 @@ class DjangoCMSPonyglotConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self):
-        from django.db.models.signals import post_delete
-        from djangocms_versioning.models import Version
-        from djangocms_versioning.signals import post_version_operation
+        from django.apps import apps
+        from django.db.models.signals import post_delete, post_save
         from ponyglot.adapters import registry
         from ponyglot.state import connect_signals
 
         from . import checks  # noqa: F401 (registers system checks)
         from .adapter import DjangoCMSAdapter
-        from .signals import version_deleted, version_operation
+        from .signals import plugin_changed, version_deleted, version_operation
 
         connect_signals(registry.register(DjangoCMSAdapter()))
-        post_version_operation.connect(
-            version_operation, dispatch_uid="djangocms_ponyglot.version_operation"
-        )
-        post_delete.connect(
-            version_deleted, sender=Version, dispatch_uid="djangocms_ponyglot.version_deleted"
-        )
+        post_save.connect(plugin_changed, dispatch_uid="djangocms_ponyglot.plugin_saved")
+        post_delete.connect(plugin_changed, dispatch_uid="djangocms_ponyglot.plugin_deleted")
+        if apps.is_installed("djangocms_versioning"):
+            from djangocms_versioning.models import Version
+            from djangocms_versioning.signals import post_version_operation
+
+            post_version_operation.connect(
+                version_operation, dispatch_uid="djangocms_ponyglot.version_operation"
+            )
+            post_delete.connect(
+                version_deleted,
+                sender=Version,
+                dispatch_uid="djangocms_ponyglot.version_deleted",
+            )

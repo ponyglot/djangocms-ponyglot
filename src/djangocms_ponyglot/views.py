@@ -1,16 +1,15 @@
-"""The translation status sideframe and its actions (ADR 0001).
+"""The translation status sideframe and its actions (ADR 0001), for any content type.
 
-Reached from the toolbar's Ponyglot menu. Reading the status asks the cloud (with a short
-timeout; a failure shows a message, the rest of the page still works). Actions are explicit
-editor decisions: request a translation, apply waiting translations to the current draft,
-copy the plugin tree from the source, exclude or include the page.
+Reached from the toolbar's Ponyglot menu for the content being edited or viewed. Reading the
+status asks the cloud (short timeout; a failure shows a message). Actions are explicit editor
+decisions: request a translation, apply waiting translations, copy the plugin tree from the
+source, exclude or include.
 """
 
-from cms.models import Page
-from cms.utils.i18n import get_language_list
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import get_object_or_404, redirect, render
+from django.http import Http404
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
@@ -19,9 +18,10 @@ from ponyglot import suggestions as suggestion_service
 from ponyglot.adapters import registry
 from ponyglot.client import APIError, Client, ConfigurationError
 from ponyglot.conf import get_config
-from ponyglot.models import HeldBack
+from ponyglot.models import HeldBack, Suggestion, SuggestionStatus
 
-from .delivery import waiting, write_into_draft
+from .contenttypes import parse_key
+from .delivery import waiting, write
 from .models import DraftDelivery
 
 SYMBOLS = {
@@ -41,28 +41,31 @@ def _client():
     return Client(timeout=10, retries=0)
 
 
-def _check(request, permission="cms.change_page"):
-    if not request.user.is_staff or not request.user.has_perm(permission):
+def _ref(request, key, permission=None):
+    ref = parse_key(key)
+    if ref is None or not ref.exists():
+        raise Http404
+    model = ref.content_type.model
+    needed = permission or f"{model._meta.app_label}.change_{model._meta.model_name}"
+    if not request.user.is_staff or not request.user.has_perm(needed):
         raise PermissionDenied
+    return ref
 
 
-def _status_url(page):
-    return reverse("admin:djangocms_ponyglot_status", args=[page.pk])
+def status_url(ref):
+    return reverse("admin:djangocms_ponyglot_status", args=[ref.key])
 
 
-def status(request, page_id):
-    _check(request)
-    page = get_object_or_404(Page, pk=page_id)
-    adapter = _adapter()
-    key = adapter.external_key(page)
+def status(request, key):
+    ref = _ref(request, key)
     source = get_config().source_language
-    languages = [code for code in get_language_list(page.site_id) if code != source]
+    languages = [code for code in get_config().languages if code != source]
     cloud_status, cloud_error = None, ""
     try:
-        cloud_status = _client().unit_status(key)
+        cloud_status = _client().unit_status(ref.key)
     except (APIError, ConfigurationError) as error:
         if getattr(error, "status", None) == 404:
-            cloud_error = _("This page hasn't been synced yet.")
+            cloud_error = _("This content hasn't been synced yet.")
         else:
             cloud_error = str(error)
     rows = []
@@ -74,7 +77,6 @@ def status(request, page_id):
                     "key": segment["key"],
                     "cells": [
                         {
-                            "code": code,
                             "state": segment["states"].get(code, "missing"),
                             "held": code in segment.get("held_back", []),
                             "issues": segment.get("qa", {}).get(code, []),
@@ -85,52 +87,49 @@ def status(request, page_id):
             )
     per_language = []
     for code in languages:
-        delivery = DraftDelivery.objects.filter(page_id=page.pk, language=code).first()
+        delivery = DraftDelivery.objects.filter(external_key=ref.key, language=code).first()
         per_language.append(
             {
                 "code": code,
-                "waiting": waiting(page, code).count(),
+                "waiting": waiting(ref, code).count(),
                 "unaligned": delivery.unaligned if delivery else [],
-                "excluded": exclusions.is_excluded(key, code),
+                "excluded": exclusions.is_excluded(ref.key, code),
             }
         )
     return render(
         request,
         "djangocms_ponyglot/status.html",
         {
-            "page": page,
-            "key": key,
-            "source": source,
+            "ref": ref,
+            "versioned": ref.content_type.versioned,
+            "per_language": ref.content_type.per_language,
             "languages": per_language,
             "cloud_status": cloud_status,
             "cloud_error": cloud_error,
             "rows": rows,
             "symbols": SYMBOLS,
-            "held_back": HeldBack.objects.filter(external_key=key),
-            "exclusion": exclusions.get(key),
-            "title": _("Translation of “%s”") % page,
+            "held_back": HeldBack.objects.filter(external_key=ref.key),
+            "exclusion": exclusions.get(ref.key),
+            "title": _("Translation of “%s”") % ref,
         },
     )
 
 
-def translate(request, page_id):
-    _check(request)
-    page = get_object_or_404(Page, pk=page_id)
+def translate(request, key):
+    ref = _ref(request, key)
     if request.method != "POST":
-        return redirect(_status_url(page))
-    adapter = _adapter()
+        return redirect(status_url(ref))
     languages = request.POST.getlist("languages")
-    use_draft = request.POST.get("source") == "draft"
     try:
         client = _client()
-        if use_draft:
-            unit = adapter.snapshot(page, draft=True)
+        if request.POST.get("source") == "draft":
+            unit = _adapter().snapshot(ref, draft=True)
             if unit is None:
-                raise APIError(0, _("The page has no text to translate."))
+                raise APIError(0, _("There is no text to translate."))
             client.push_units([unit.as_payload(with_translations=False)])
         else:
             sync.push(client, sync.Report())  # bring the published source up to date
-        payload = {"type": "translate", "units": [adapter.external_key(page)]}
+        payload = {"type": "translate", "units": [ref.key]}
         if languages:
             payload["languages"] = languages
         if request.POST.get("confirm"):
@@ -142,7 +141,7 @@ def translate(request, page_id):
                 request,
                 "djangocms_ponyglot/confirm.html",
                 {
-                    "page": page,
+                    "ref": ref,
                     "estimate": error.data.get("estimate", {}),
                     "languages": languages,
                     "source": request.POST.get("source", ""),
@@ -150,29 +149,28 @@ def translate(request, page_id):
                 },
             )
         messages.error(request, _("Ponyglot: %s") % error)
-        return redirect(_status_url(page))
+        return redirect(status_url(ref))
     except ConfigurationError as error:
         messages.error(request, str(error))
-        return redirect(_status_url(page))
+        return redirect(status_url(ref))
     messages.success(
         request,
-        _("Translation requested (%(segments)s segments). Drafts arrive with the next sync.")
+        _("Translation requested (%(segments)s segments). It arrives with the next sync.")
         % {"segments": job.get("estimated_segments", 0)},
     )
-    return redirect(_status_url(page))
+    return redirect(status_url(ref))
 
 
-def apply_waiting(request, page_id, language):
-    _check(request)
-    page = get_object_or_404(Page, pk=page_id)
+def apply_waiting(request, key, language):
+    ref = _ref(request, key)
     if request.method == "POST":
         result = suggestion_service.apply(
-            list(waiting(page, language)),
+            list(waiting(ref, language)),
             request.user,
             confirm_errors=bool(request.POST.get("confirm_errors")),
         )
         if result.applied:
-            messages.success(request, _("Translations written into the current draft."))
+            messages.success(request, _("Translations applied."))
         if result.blocked:
             messages.error(
                 request,
@@ -181,39 +179,31 @@ def apply_waiting(request, page_id, language):
             )
         if result.outdated:
             messages.warning(request, _("Some translations are outdated: the source changed."))
-    return redirect(_status_url(page))
+    return redirect(status_url(ref))
 
 
-def copy_tree(request, page_id, language):
-    _check(request)
-    page = get_object_or_404(Page, pk=page_id)
+def copy_tree(request, key, language):
+    ref = _ref(request, key)
     if request.method == "POST":
-        from ponyglot.models import Suggestion, SuggestionStatus
-
-        values = {
-            s.field: s.applied_text
-            for s in Suggestion.objects.filter(
-                external_key=_adapter().external_key(page),
-                language=language,
-                status__in=[SuggestionStatus.DRAFTED, SuggestionStatus.PENDING],
-            ).order_by("created_at")
-        }
-        write_into_draft(page, language, values, force=True, rebuild=True)
-        messages.success(request, _("Plugin tree copied from the source into the draft."))
-    return redirect(_status_url(page))
+        live = Suggestion.objects.filter(
+            external_key=ref.key,
+            language=language,
+            status__in=[SuggestionStatus.DRAFTED, SuggestionStatus.PENDING],
+        ).order_by("created_at")
+        write(ref, language, {s.field: s.applied_text for s in live}, force=True, rebuild=True)
+        messages.success(request, _("Plugin tree copied from the source."))
+    return redirect(status_url(ref))
 
 
-def exclude(request, page_id):
-    _check(request, "ponyglot.add_exclusion")
-    page = get_object_or_404(Page, pk=page_id)
+def exclude(request, key):
+    ref = _ref(request, key, "ponyglot.add_exclusion")
     if request.method == "POST":
-        adapter = _adapter()
         if request.POST.get("include"):
-            exclusions.include(adapter, page)
-            messages.success(request, _("The page is translated again."))
+            exclusions.include(_adapter(), ref)
+            messages.success(request, _("Translated again."))
         else:
             exclusions.exclude(
-                adapter, page, request.POST.getlist("languages") or None, user=request.user
+                _adapter(), ref, request.POST.getlist("languages") or None, user=request.user
             )
             messages.success(request, _("Excluded from translation."))
-    return redirect(_status_url(page))
+    return redirect(status_url(ref))

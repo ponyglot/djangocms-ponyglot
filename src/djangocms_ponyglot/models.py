@@ -28,7 +28,7 @@ class DraftDelivery(models.Model):
     `unaligned` lists source segments that had no counterpart in the draft's plugin tree.
     """
 
-    page_id = models.PositiveBigIntegerField(db_index=True)
+    external_key = models.CharField(max_length=255, db_index=True)
     language = models.CharField(max_length=15)
     content_id = models.PositiveBigIntegerField()
     version_id = models.PositiveBigIntegerField(null=True)
@@ -41,4 +41,4 @@ class DraftDelivery(models.Model):
         verbose_name = _("draft delivery")
 
     def __str__(self):
-        return f"page {self.page_id} [{self.language}] {self.delivered_at:%Y-%m-%d %H:%M}"
+        return f"{self.external_key} [{self.language}] {self.delivered_at:%Y-%m-%d %H:%M}"

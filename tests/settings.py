@@ -60,3 +60,5 @@ TEMPLATES = [
     }
 ]
 PONYGLOT = {"API_KEY": "pg_test", "API_URL": "https://api.example.test/v1"}
+# djangocms-translations' declarations are respected.
+DJANGOCMS_TRANSLATIONS_CONF = {"LinkPlugin": {"fields": ["name"], "text_field_child_label": "name"}}

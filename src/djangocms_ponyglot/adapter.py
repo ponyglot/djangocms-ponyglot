@@ -1,244 +1,175 @@
-"""django CMS pages as Ponyglot units (ADR 0001).
+"""django CMS content as Ponyglot units (ADR 0001).
 
-A unit is a page (`djangocms:page:<id>`) in the source language: its published content by
-default. Segments are the page fields (title, menu title, page title, meta description) and the
-text fields of every plugin, keyed by stable plugin keys (`plugin:<key>:<field>`, keys.py).
-Rich text keeps djangocms-text's embedded child plugins as `<cms-plugin id="<key>">`, so the
-tags survive translation and map to the target's own child plugins.
+A unit is a grouper of a frontend-editable content type (contenttypes.py): a page, a post, an
+alias, a custom object. `djangocms:<content model>:<grouper id>`. The source is its published
+source-language content (or, on request, the current draft). Segments are the content model's
+translated fields (per-language content types) and the translated plugin fields (extract.py).
 """
 
-import re
-
-from cms.models import CMSPlugin, Page, PageContent
-from django.conf import settings
 from django.utils import translation
-from ponyglot.adapters import Adapter, Segment, Unit, detect_format, is_translatable_field, kind_for
+from ponyglot.adapters import Adapter, Unit
 from ponyglot.conf import get_config
 
 from . import keys as plugin_keys
-
-PAGE_FIELDS = {
-    "title": ("title", 255),
-    "menu_title": ("title", 255),
-    "page_title": ("title", 255),
-    "meta_description": ("meta_description", None),
-}
-_BASE_FIELDS = {field.name for field in CMSPlugin._meta.get_fields()} | {"cmsplugin_ptr"}
-_CHILD_TAG = re.compile(r'<cms-plugin\b[^>]*?\bid="(?P<id>[^"]+)"[^>]*>.*?</cms-plugin>', re.DOTALL)
+from .contenttypes import UnitRef, content_types, for_model, parse_key
+from .extract import segments_of
 
 
-def options():
-    return getattr(settings, "PONYGLOT", {}) or {}
+def align(ref, content, language):
+    """Share keys between a target-language tree and the source tree, by structure, before the
+    target plugins get keys of their own."""
+    source_language = get_config().source_language
+    source = ref.published(source_language) or ref.current(source_language)
+    if source is None or (source.pk == content.pk and language == source_language):
+        return
+    plugin_keys.ensure_keys(source, source_language)
+    plugin_keys.inherit_keys(source, source_language, content, language)
 
 
-def excluded_plugin_types():
-    return set(options().get("EXCLUDE_PLUGINS", ()))
-
-
-def source_content(page, *, draft=False):
-    """The page's source-language content: published (default) or the current draft."""
-    language = get_config().source_language
-    if draft:
-        return (
-            PageContent.admin_manager.filter(page=page, language=language).current_content().first()
-        )
-    return PageContent.objects.filter(page=page, language=language).first()
-
-
-def latest_content(page, language):
-    """Draft if any, else published, else the newest other version (djangocms-versioning)."""
-    return PageContent.admin_manager.filter(page=page, language=language).latest_content().first()
-
-
-def published_content(page, language):
-    return PageContent.objects.filter(page=page, language=language).first()
-
-
-def plugin_fields(plugin):
-    """`{field name: model field}` of a bound plugin's translatable text fields."""
-    if plugin.plugin_type in excluded_plugin_types():
-        return {}
-    excluded = get_config().exclude_fields
-    result = {}
-    for model_field in type(plugin)._meta.concrete_fields:
-        if model_field.name in _BASE_FIELDS or not is_translatable_field(model_field):
-            continue
-        if f"{plugin._meta.label_lower}.{model_field.name}" in excluded:
-            continue
-        result[model_field.name] = model_field
-    return result
-
-
-def child_tags_to_keys(text, keys_by_id):
-    """`<cms-plugin … id="123">…</cms-plugin>` → `<cms-plugin id="<key>"></cms-plugin>`."""
-
-    def replace(match):
-        key = keys_by_id.get(int(match["id"])) if match["id"].isdigit() else None
-        return f'<cms-plugin id="{key}"></cms-plugin>' if key else match.group(0)
-
-    return _CHILD_TAG.sub(replace, text)
-
-
-def child_keys_to_tags(text, plugins_by_key):
-    """The reverse, pointing at the target's own child plugins (djangocms-text markup)."""
-    try:
-        from djangocms_text.utils import plugin_to_tag
-    except ImportError:  # pragma: no cover (djangocms-text not installed)
-        return text
-
-    def replace(match):
-        plugin = plugins_by_key.get(match["id"])
-        return plugin_to_tag(plugin) if plugin is not None else ""
-
-    return _CHILD_TAG.sub(replace, text)
-
-
-def align(page, content):
-    """Share keys between `content` (a target language) and the source content, by structure,
-    before target plugins get keys of their own."""
-    source = source_content(page) or source_content(page, draft=True)
-    if source is not None and source.pk != content.pk:
-        plugin_keys.ensure_keys(source)
-        plugin_keys.inherit_keys(source, content)
-
-
-def target_segments(page, content):
-    align(page, content)
-    return segments_of(content)
-
-
-def segments_of(content):
-    """`{segment key: Segment}` of a page content (source or target language)."""
-    result = {}
-    position = 0
-    for name, (kind, max_length) in PAGE_FIELDS.items():
-        value = getattr(content, name, "") or ""
-        if value.strip():
-            result[name] = Segment(
-                key=name,
-                text=value,
-                field=name,
-                kind=kind,
-                max_length=max_length,
-                position=position,
-            )
-            position += 1
-    keys = plugin_keys.ensure_keys(content)
-    for slot, plugins in plugin_keys.plugins_by_slot(content).items():
-        for plugin in plugins:
-            bound, _ = plugin.get_plugin_instance()
-            if bound is None:
-                continue
-            for name, model_field in plugin_fields(bound).items():
-                value = getattr(bound, name, "") or ""
-                if not str(value).strip():
-                    continue
-                value = str(value)
-                label = f"{bound._meta.label_lower}.{name}"
-                segment_format = detect_format(model_field, value, label)
-                if segment_format in ("html", "rich_text"):
-                    value = child_tags_to_keys(value, keys)
-                segment = Segment(
-                    key=f"plugin:{keys[plugin.pk]}:{name}",
-                    text=value,
-                    format=segment_format,
-                    field=name,
-                    kind=kind_for(name) or "body",
-                    max_length=getattr(model_field, "max_length", None),
-                )
-                segment.parent_key = (
-                    f"plugin:{keys[plugin.parent_id]}"
-                    if plugin.parent_id in keys
-                    else f"placeholder:{slot}"
-                )
-                segment.position = position
-                position += 1
-                result[segment.key] = segment
-    return result
+def target_segments(ref, content, language):
+    align(ref, content, language)
+    return segments_of(ref, content, language)
 
 
 class DjangoCMSAdapter(Adapter):
     name = "djangocms"
     capabilities = frozenset({"qa_errors", "whole_unit"})
-    applied_status = "drafted"  # approved when the draft is published (signals.py)
+    applied_status = "drafted"
+
+    def status_after_write(self, ref):
+        # Versioned content: written into a draft, approved on publishing (signals.py).
+        # Unversioned content: an editor applied it, and it is live.
+        return "drafted" if ref.content_type.versioned else "applied"
+
+    # --- Change detection (see also signals.py) ------------------------------------------
 
     def watched_models(self):
-        # Content changes are noticed through versioning operations (signals.py); deleting a
-        # page deletes its unit.
-        return {Page: lambda page: None}
+        watched = {}
+        for ct in content_types().values():
+            if ct.grouper_model is not None:
+                watched[ct.grouper_model] = _no_owner  # deletion only
+            if not ct.versioned:
+                watched[ct.model] = _unversioned_owner(ct)
+        return watched
 
     def owner_models(self):
-        return [Page]
+        return [ct.grouper_model or ct.model for ct in content_types().values()]
 
     def iter_objects(self):
         source = get_config().source_language
-        page_ids = PageContent.objects.filter(language=source).values_list("page_id", flat=True)
-        return Page.objects.filter(pk__in=page_ids).order_by("pk").iterator()
+        for ct in content_types().values():
+            filters = {"language": source} if ct.per_language else {}
+            grouper = f"{ct.grouper_field}_id" if ct.grouper_field else "pk"
+            rows = (
+                ct.manager()
+                .filter(**filters)
+                .values_list(grouper, *ct.extra_fields)
+                .distinct()
+                .order_by(grouper)
+            )
+            for grouper_id, *extra in rows:
+                yield UnitRef(ct, grouper_id, tuple(zip(ct.extra_fields, extra, strict=True)))
 
-    def external_key(self, page):
-        return f"{self.name}:page:{page.pk}"
+    # --- Identity ---------------------------------------------------------------------------
+
+    def external_key(self, obj):
+        return self.ref(obj).key
+
+    def ref(self, obj):
+        """The unit of a `UnitRef`, a content object or a grouper."""
+        if isinstance(obj, UnitRef):
+            return obj
+        ct = for_model(type(obj))
+        if ct is not None:
+            return ct.ref(obj)
+        for ct in content_types().values():
+            if ct.grouper_model is type(obj):
+                return ct.ref_for_grouper(obj)
+        raise ValueError(f"{obj!r} isn't django CMS content Ponyglot translates")
 
     def get_object(self, external_key):
-        prefix, _, rest = external_key.partition(":page:")
-        if prefix != self.name or not rest.isdigit():
-            return None
-        return Page.objects.filter(pk=int(rest)).first()
+        ref = parse_key(external_key)
+        return ref if ref is not None and ref.exists() else None
 
-    def snapshot(self, page, *, draft=False):
-        content = source_content(page, draft=draft)
+    # --- Snapshots --------------------------------------------------------------------------
+
+    def snapshot(self, ref, *, draft=False):
+        source = get_config().source_language
+        content = ref.current(source) if draft else ref.published(source)
         if content is None:
             return None
-        segments = list(segments_of(content).values())
+        segments = list(segments_of(ref, content, source).values())
         if not segments:
             return None
-        self._add_existing_translations(page, content, segments)
+        self._add_existing_translations(ref, content, segments)
+        ct = ref.content_type
         return Unit(
-            external_key=self.external_key(page),
+            external_key=ref.key,
             adapter=self.name,
-            source_language=content.language,
+            source_language=source,
             segments=segments,
-            label=content.title,
-            path=self.path(page, content.language),
-            metadata={"template": content.template, "page": page.pk},
+            label=str(content)[:500],
+            path=self.path(ref, content, source),
+            metadata={
+                "content_type": ct.label,
+                "mode": "per_language" if ct.per_language else "shared",
+                "versioned": ct.versioned,
+            },
         )
 
-    def _add_existing_translations(self, page, source, segments):
+    def _add_existing_translations(self, ref, source_content, segments):
         """Published target-language texts, sent on the first push only (imported as
         approved). Target plugins are matched to source plugins by structure first."""
+        source = get_config().source_language
         for language in get_config().languages:
-            if language == source.language:
+            if language == source:
                 continue
-            target = published_content(page, language)
+            # Per-language content: its own object; shared: the same one, other plugins.
+            per_language = ref.content_type.per_language
+            target = ref.published(language) if per_language else source_content
             if target is None:
                 continue
-            existing = target_segments(page, target)
+            existing = target_segments(ref, target, language)
             for segment in segments:
                 if segment.key in existing:
                     segment.translations = segment.translations or {}
                     segment.translations[language] = existing[segment.key].text
 
-    def path(self, page, language):
-        try:
-            with translation.override(language):
-                return page.get_absolute_url(language) or ""
-        except Exception:  # noqa: BLE001 (a broken URL must not stop the sync)
-            return ""
+    def path(self, ref, content, language):
+        for obj in (content, ref.grouper):
+            get_url = getattr(obj, "get_absolute_url", None)
+            if get_url is None:
+                continue
+            try:
+                with translation.override(language):
+                    try:
+                        return get_url(language) or ""
+                    except TypeError:
+                        return get_url() or ""
+            except Exception:  # noqa: BLE001, S112 (a broken URL must not stop the sync)
+                continue
+        return ""
 
-    # --- Used by the core's suggestion service ("apply to current draft") ------------------
+    # --- Used by the core's suggestion service ("apply") -----------------------------------
 
-    def source_value(self, page, key):
-        content = source_content(page)
-        segment = segments_of(content).get(key) if content else None
+    def _source_segment(self, ref, key):
+        source = get_config().source_language
+        content = ref.published(source)
+        return segments_of(ref, content, source).get(key) if content is not None else None
+
+    def source_value(self, ref, key):
+        segment = self._source_segment(ref, key)
         return segment.text if segment else None
 
-    def field_format(self, page, key, value=None):
-        content = source_content(page)
-        segment = segments_of(content).get(key) if content else None
+    def field_format(self, ref, key, value=None):
+        segment = self._source_segment(ref, key)
         return segment.format if segment else "plain"
 
-    def target_value(self, page, key, language):
-        content = latest_content(page, language)
-        segment = target_segments(page, content).get(key) if content else None
+    def target_value(self, ref, key, language):
+        content = ref.latest(language)
+        if content is None:
+            return None
+        segment = target_segments(ref, content, language).get(key)
         return segment.text if segment else None
 
     def deliver(self, results):
@@ -246,9 +177,22 @@ class DjangoCMSAdapter(Adapter):
 
         return deliver(self, results)
 
-    def write(self, page, language, values):
-        """Write `{segment key: text}` into the current draft (an editor's explicit choice,
-        so an edited draft is written too)."""
-        from .delivery import write_into_draft
+    def write(self, ref, language, values):
+        """An editor's explicit "apply": into the current draft even if edited (versioned), or
+        live (unversioned)."""
+        from .delivery import write
 
-        write_into_draft(page, language, values, force=True)
+        write(ref, language, values, force=True)
+
+
+def _no_owner(grouper):
+    return None
+
+
+def _unversioned_owner(ct):
+    def owner(content):
+        if ct.per_language and content.language != get_config().source_language:
+            return None
+        return ct.ref(content)
+
+    return owner

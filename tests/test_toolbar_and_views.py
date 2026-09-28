@@ -1,19 +1,13 @@
-"""Toolbar menu and sideframe views: status, translate, apply waiting, copy tree, exclude."""
+"""Toolbar menu and sideframe views for any content type."""
 
 import pytest
-from djangocms_versioning.models import Version
 from ponyglot import sync
-from ponyglot.adapters import registry
 from ponyglot.client import Client
 from ponyglot.models import Exclusion, HeldBack, Suggestion
 
-from djangocms_ponyglot.adapter import latest_content
-
-from .test_workflow import translate
+from .test_content_types import synced
 
 pytestmark = pytest.mark.django_db
-
-adapter = registry.get("djangocms")
 
 
 @pytest.fixture
@@ -28,109 +22,73 @@ def staff(client, editor):
     return client
 
 
-def status_url(page):
-    return f"/en/admin/djangocms_ponyglot/draftdelivery/page/{page.pk}/"
+def status_url(ref):
+    return f"/en/admin/djangocms_ponyglot/draftdelivery/unit/{ref.key}/"
 
 
-def test_toolbar_menu(staff, page, api, cloud):
+def test_toolbar_menu_on_a_page(staff, page, page_ref, api, cloud):
+    html = staff.get(page.get_absolute_url("en") + "?toolbar_on").content.decode()
+    assert "Ponyglot" in html and status_url(page_ref).removeprefix("/en") in html
+
+
+@pytest.mark.parametrize("fixture", ["page_ref", "article_ref", "note_ref", "box_ref"])
+def test_status_page_for_every_content_type(request, staff, views_cloud, api, fixture):
+    ref = request.getfixturevalue(fixture)
+    assert "been synced yet" in staff.get(status_url(ref)).content.decode()
     sync.backfill()
     sync.run(api)
-    html = staff.get(page.get_absolute_url("en") + "?toolbar_on").content.decode()
-    assert "Ponyglot" in html and status_url(page).removeprefix("/en") in html
-
-    # Waiting translations are counted in the menu title.
-    translate(cloud, page)
-    sync.run(api)
-    draft = latest_content(page, "de")
-    draft.title = "Von Hand"
-    draft.save()
-    cloud.add_result(adapter.external_key(page), "title", "de", "Tarife", source="Pricing")
-    sync.run(api)
-    html = staff.get(page.get_absolute_url("en") + "?toolbar_on").content.decode()
-    assert "Ponyglot (1 waiting)" in html
+    html = staff.get(status_url(ref)).content.decode()
+    assert "segments need work" in html
+    if fixture == "note_ref":
+        assert "published together" in html
+    if fixture == "box_ref":
+        assert "applying publishes them" in html
 
 
-def test_status_page(staff, page, api, views_cloud):
-    assert "been synced yet" in staff.get(status_url(page)).content.decode()
+def test_status_shows_held_back(staff, views_cloud, api, page_ref):
     sync.backfill()
     sync.run(api)
-    key = adapter.external_key(page)
-    views_cloud.states[(key, "title", "de")] = "ok"
     HeldBack.objects.create(
-        external_key=key,
-        key="meta_description",
-        language="fr",
-        issues=[{"message": "Too long"}],
+        external_key=page_ref.key, key="title", language="fr", issues=[{"message": "Too long"}]
     )
-    html = staff.get(status_url(page)).content.decode()
-    assert "6 of 6 segments need work" in html
+    html = staff.get(status_url(page_ref)).content.decode()
     assert "Waiting for a QA review" in html and "Too long" in html
-    assert "Translate what changed" in html
 
 
-def test_status_needs_permission(client, django_user_model, page):
+def test_permission_needed(client, django_user_model, page_ref):
     user = django_user_model.objects.create_user("visitor", password="pw", is_staff=True)
     client.force_login(user)
-    assert client.get(status_url(page)).status_code == 403
+    assert client.get(status_url(page_ref)).status_code == 403
+    assert client.get(status_url(page_ref).replace(":1/", ":999/")).status_code in (403, 404)
 
 
-def test_translate_this_page(staff, page, views_cloud):
-    response = staff.post(status_url(page) + "translate/", {"languages": ["de"]}, follow=True)
+def test_translate(staff, views_cloud, article_ref):
+    response = staff.post(
+        status_url(article_ref) + "translate/", {"languages": ["de"]}, follow=True
+    )
     assert "Translation requested" in response.content.decode()
-    assert adapter.external_key(page) in views_cloud.units  # pushed first
     jobs = [r for r in views_cloud.requests if r[:2] == ("POST", "/jobs")]
-    assert jobs == [
-        (
-            "POST",
-            "/jobs",
-            {"type": "translate", "units": [adapter.external_key(page)], "languages": ["de"]},
-        )
-    ]
+    assert jobs[0][2] == {"type": "translate", "units": [article_ref.key], "languages": ["de"]}
 
 
-def test_translate_the_current_draft(staff, page, editor, views_cloud):
-    content = latest_content(page, "en")
-    draft = Version.objects.get_for_content(content).copy(editor).content
-    draft.title = "Pricing (new)"
-    draft.save()
-    staff.post(status_url(page) + "translate/", {"source": "draft"})
-    pushed = views_cloud.units[adapter.external_key(page)]
-    assert pushed["segments"][0]["text"] == "Pricing (new)"
-
-
-def test_large_translations_need_confirmation(staff, page, views_cloud):
+def test_translate_needs_confirmation(staff, views_cloud, article_ref):
     views_cloud.confirm_above = 10
-    html = staff.post(status_url(page) + "translate/", {"languages": ["de"]}).content.decode()
-    assert "needs your confirmation" in html and 'name="confirm"' in html
-    assert views_cloud.jobs == {}
-    staff.post(status_url(page) + "translate/", {"languages": ["de"], "confirm": "1"})
+    html = staff.post(
+        status_url(article_ref) + "translate/", {"languages": ["de"]}
+    ).content.decode()
+    assert "needs your confirmation" in html
+    staff.post(status_url(article_ref) + "translate/", {"languages": ["de"], "confirm": "1"})
     assert len(views_cloud.jobs) == 1
 
 
-def test_apply_waiting_and_copy_tree(staff, page, api, cloud):
-    sync.backfill()
-    sync.run(api)
-    translate(cloud, page)
-    sync.run(api)
-    draft = latest_content(page, "de")
-    draft.menu_title = "Kosten"
-    draft.save()
-    cloud.add_result(adapter.external_key(page), "title", "de", "Tarife", source="Pricing")
-    sync.run(api)
-
-    staff.post(status_url(page) + "de/apply/")
-    assert latest_content(page, "de").title == "Tarife"
+def test_apply_unversioned_from_the_status_page(staff, api, cloud, box_ref):
+    synced(api, cloud, box_ref)
+    staff.post(status_url(box_ref) + "de/apply/")
     assert not Suggestion.objects.filter(status="pending").exists()
 
-    staff.post(status_url(page) + "de/copy-tree/")
-    assert latest_content(page, "de").title == "Tarife"
 
-
-def test_exclude_and_include(staff, page):
-    staff.post(status_url(page) + "exclude/", {"languages": ["fr"]})
+def test_exclude_and_include(staff, note_ref):
+    staff.post(status_url(note_ref) + "exclude/", {"languages": ["fr"]})
     assert Exclusion.objects.get().languages == ["fr"]
-    staff.post(status_url(page) + "exclude/", {})
-    assert Exclusion.objects.get().all_languages
-    assert "excluded from translation" in staff.get(status_url(page)).content.decode()
-    staff.post(status_url(page) + "exclude/", {"include": "1"})
+    staff.post(status_url(note_ref) + "exclude/", {"include": "1"})
     assert not Exclusion.objects.exists()

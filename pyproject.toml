@@ -14,7 +14,6 @@ requires-python = ">=3.10"
 dependencies = [
   "Django>=5.2",
   "django-cms>=5.1",
-  "djangocms-versioning>=2.7",
   "ponyglot>=0.1.0.dev0",
 ]
 classifiers = [
@@ -28,6 +27,9 @@ classifiers = [
   "Topic :: Software Development :: Localization",
 ]
 
+[project.optional-dependencies]
+versioning = ["djangocms-versioning>=2.7"]
+
 [project.urls]
 Homepage = "https://ponyglot.app"
 Documentation = "https://docs.ponyglot.app"
@@ -35,6 +37,7 @@ Documentation = "https://docs.ponyglot.app"
 [dependency-groups]
 dev = [
   "djangocms-text>=0.9",
+  "djangocms-versioning>=2.7",
   "pytest>=8",
   "pytest-django>=4.9",
   "ruff>=0.12",
