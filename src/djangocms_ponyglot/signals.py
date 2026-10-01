@@ -134,3 +134,21 @@ def plugin_changed(sender, instance, **kwargs):
     ct = for_model(type(source)) if source is not None else None
     if ct is not None and not ct.versioned:
         state.mark_dirty(_adapter(), ct.ref(source))
+
+
+def source_draft_discarding(sender, instance, **kwargs):
+    """A source-language draft is about to be discarded: the cloud may have its texts (the
+    dialog translates the version being viewed), so the next sync sends the published one."""
+    from djangocms_versioning import constants
+
+    if instance.state != constants.DRAFT:
+        return
+    try:
+        content = instance.content
+    except Exception:  # noqa: BLE001 (already gone)
+        return
+    ct = for_model(type(content)) if content is not None else None
+    if ct is None:
+        return
+    if not ct.per_language or content.language == get_config().source_language:
+        state.mark_dirty(_adapter(), ct.ref(content))

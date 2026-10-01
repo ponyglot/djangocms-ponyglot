@@ -94,17 +94,28 @@ title and meta description; other models their text fields except bookkeeping on
   them across versions and languages. A translated plugin shares its source plugin's key.
   Content that is already translated is matched by structure (placeholder, plugin type,
   position in the tree), and its texts are imported on the first push.
-- **Translate:** the toolbar's **Ponyglot** menu, on any translated content, opens the status
-  (✓ / stale / in review / missing / waiting for QA) and **Translate what changed**, from the
-  published version or the current draft. Large jobs ask for confirmation first.
+- **Translate:** **Ponyglot translations** is the first entry of the toolbar's **Language**
+  menu on any translated content. It opens a dialog with this content's state per language and
+  the next step for each: **Translate**, **Apply to draft**, **Review draft** (opens the
+  translated draft to check and publish), or nothing when Ponyglot is reviewing it. When
+  everything is translated it says so. If no sync round ran within `FETCH_AFTER_MINUTES`,
+  opening the dialog fetches this content's translations first (and pushes it if it changed).
+  Large jobs ask for confirmation first.
+- **Status details:** the dialog links to the full status page: per segment (✓ / stale / in
+  review / missing / waiting for QA), jobs and the plugin tree copy.
+- **Source:** the dialog translates the version you're viewing, draft or published; it says
+  which.
 - **Drafts:** a unit arrives in one piece per language. A draft this connector wrote and nobody
   touched is updated; a published version gets a new draft (only changed texts are updated, so
-  earlier corrections stay); a draft someone edited is never overwritten. The menu shows
-  "*n* waiting" and the status offers **Apply to current draft**.
+  earlier corrections stay); a draft someone edited is never overwritten. The menu entry
+  shows "*n* to review" for languages with a draft or translations waiting.
 - **Approve:** publishing reports the approval, including your corrections (they go into the
   translation memory). Discarding or archiving a delivered draft reports a rejection.
-- **Different structure:** texts without a counterpart in the translated plugin tree are listed
-  with **Copy plugin tree from source**.
+- **New plugins:** plugins added to the source are added to the translations at the same place,
+  with their children; nothing is removed or moved.
+- **Different structure:** texts without a counterpart in the translated plugin tree (e.g. a
+  plugin an editor removed from the translation) keep waiting and are listed with **Copy plugin
+  tree from source**.
 - **QA:** depending on your plan, QA errors are shown next to the texts for editors to fix, or
   held back for a separate review; the status lists what is waiting and why.
 - **Exclude:** keep content out of translation, for all or some languages.
@@ -119,6 +130,7 @@ In `PONYGLOT["DJANGOCMS"]` (the core's settings apply too, see the `ponyglot` RE
 | `CONTENT_FIELDS` | see above | e.g. `{"djangocms_stories.postcontent": ["title", "abstract"]}` |
 | `PLUGINS` | – | like `DJANGOCMS_TRANSLATIONS_CONF`; these entries win |
 | `USER` | `"ponyglot"` | username of the (inactive) user that authors translation drafts |
+| `FETCH_AFTER_MINUTES` | `15` | without a sync round this long, the dialog fetches its content's translations itself |
 
 ## Not yet supported
 

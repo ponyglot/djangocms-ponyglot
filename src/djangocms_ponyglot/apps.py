@@ -9,13 +9,18 @@ class DjangoCMSPonyglotConfig(AppConfig):
 
     def ready(self):
         from django.apps import apps
-        from django.db.models.signals import post_delete, post_save
+        from django.db.models.signals import post_delete, post_save, pre_delete
         from ponyglot.adapters import registry
         from ponyglot.state import connect_signals
 
         from . import checks  # noqa: F401 (registers system checks)
         from .adapter import DjangoCMSAdapter
-        from .signals import plugin_changed, version_deleted, version_operation
+        from .signals import (
+            plugin_changed,
+            source_draft_discarding,
+            version_deleted,
+            version_operation,
+        )
 
         connect_signals(registry.register(DjangoCMSAdapter()))
         post_save.connect(plugin_changed, dispatch_uid="djangocms_ponyglot.plugin_saved")
@@ -31,4 +36,9 @@ class DjangoCMSPonyglotConfig(AppConfig):
                 version_deleted,
                 sender=Version,
                 dispatch_uid="djangocms_ponyglot.version_deleted",
+            )
+            pre_delete.connect(
+                source_draft_discarding,
+                sender=Version,
+                dispatch_uid="djangocms_ponyglot.source_draft_discarding",
             )

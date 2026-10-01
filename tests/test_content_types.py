@@ -409,12 +409,65 @@ def test_unaligned_segments_and_rebuilding_the_tree(api, cloud, article_ref):
     )
     translate(cloud, article_ref, only=[alt])
     sync.run(api)
-    assert DraftDelivery.objects.first().unaligned == [alt]
+    assert DraftDelivery.objects.first().unaligned == [alt]  # removed by an editor: not re-added
+    assert DraftDelivery.objects.count() == 1  # the latest delivery only, with all keys
+    assert Suggestion.objects.get(field=alt, status__in=["pending", "drafted"]).status == "pending"
 
     live = Suggestion.objects.filter(status__in=["pending", "drafted"])
     delivery = write(article_ref, "de", {s.field: s.text for s in live}, force=True, rebuild=True)
     assert delivery.unaligned == []
     assert "Ein Pony" in texts_in(article_ref, article_ref.latest("de"), "de").values()
+
+
+@pytest.mark.parametrize("fixture", ["page_ref", "article_ref"])
+@pytest.mark.parametrize("source", ["draft", "published"])
+def test_plugins_new_in_the_source_are_added(request, api, cloud, editor, fixture, source):
+    ref = request.getfixturevalue(fixture)
+    synced(api, cloud, ref)
+    english = Version.objects.get_for_content(ref.published("en")).copy(editor).content
+    old_teaser = next(
+        p for p in placeholder_of(english).get_plugins("en") if p.plugin_type == "TeaserPlugin"
+    )
+    # A new container with a child, between the text and the existing teaser.
+    container = add_plugin(
+        placeholder_of(english),
+        "TeaserPlugin",
+        "en",
+        position="left",
+        target=old_teaser,
+        title="Pro",
+        style="b",
+    )
+    add_plugin(
+        placeholder_of(english),
+        "TeaserPlugin",
+        "en",
+        position="last-child",
+        target=container,
+        title="Nested",
+        style="b",
+    )
+    if source == "published":
+        publish(english, editor)
+        sync.run(api)
+    else:  # "Translate the draft" on the status page
+        api.push_units([adapter.snapshot(ref, draft=True).as_payload(with_translations=False)])
+    translate(cloud, ref)
+    sync.run(api)
+
+    draft = ref.latest("de")
+    titles = [t for t in plugin_texts(draft, "de") if t in ("DE Pro", "DE Nested", "Agentur")]
+    assert titles == ["DE Pro", "DE Nested", "Agentur"]  # same place, same nesting
+    by_title = {
+        p.get_plugin_instance()[0].title: p
+        for p in placeholder_of(draft).get_plugins("de")
+        if p.plugin_type == "TeaserPlugin"
+    }
+    assert by_title["DE Nested"].parent_id == by_title["DE Pro"].pk
+    positions = sorted(p.position for p in placeholder_of(draft).get_plugins("de"))
+    assert positions == list(range(1, len(positions) + 1))
+    assert DraftDelivery.objects.first().unaligned == []
+    assert not Suggestion.objects.filter(status="pending").exists()
 
 
 def test_exclusion(api, cloud, article_ref, editor):
@@ -460,3 +513,15 @@ def test_handshake_capabilities(api, cloud, page_ref):
 def test_article_contents_use_the_versioning_copy(api, cloud, article_ref):
     synced(api, cloud, article_ref)
     assert ArticleContent.admin_manager.filter(language="de").count() == 1
+
+
+def test_only_the_latest_delivery_is_kept_with_every_key(api, cloud, article_ref):
+    synced(api, cloud, article_ref)
+    first = DraftDelivery.objects.get(language="de")
+    DraftDelivery.objects.filter(pk=first.pk).update(plugin_keys=[*first.plugin_keys, "gone"])
+    DraftDelivery.objects.update(texts_hash=texts_hash(article_ref, article_ref.latest("de"), "de"))
+    translate(cloud, article_ref)
+    sync.run(api)
+    latest = DraftDelivery.objects.get(language="de")
+    assert latest.pk != first.pk
+    assert "gone" in latest.plugin_keys  # a key an earlier draft had stays known

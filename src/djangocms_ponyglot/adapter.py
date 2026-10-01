@@ -15,11 +15,11 @@ from .contenttypes import UnitRef, content_types, for_model, parse_key
 from .extract import segments_of
 
 
-def align(ref, content, language):
+def align(ref, content, language, source=None):
     """Share keys between a target-language tree and the source tree, by structure, before the
     target plugins get keys of their own."""
     source_language = get_config().source_language
-    source = ref.published(source_language) or ref.current(source_language)
+    source = source or ref.published(source_language) or ref.current(source_language)
     if source is None or (source.pk == content.pk and language == source_language):
         return
     plugin_keys.ensure_keys(source, source_language)
@@ -93,9 +93,12 @@ class DjangoCMSAdapter(Adapter):
 
     # --- Snapshots --------------------------------------------------------------------------
 
-    def snapshot(self, ref, *, draft=False):
+    def snapshot(self, ref, *, draft=False, content=None):
+        """The unit from the published source (the sync), the current draft (`draft`), or a
+        given source-language version (`content`: the one an editor is viewing)."""
         source = get_config().source_language
-        content = ref.current(source) if draft else ref.published(source)
+        if content is None:
+            content = ref.current(source) if draft else ref.published(source)
         if content is None:
             return None
         segments = list(segments_of(ref, content, source).values())

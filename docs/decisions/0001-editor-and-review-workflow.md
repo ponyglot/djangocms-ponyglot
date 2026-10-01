@@ -25,7 +25,12 @@ published automatically. CMS content lands as drafts. Editors approve."
 
 ## Decisions (owner, 2026-09-28)
 
-1. **Source: the published version** by default; "Translate current draft" is an explicit action.
+1. **Source: the version being viewed** (changed 2026-10-01, was "published by default, draft
+   on request"). The toolbar dialog works on the version the editor is looking at, published
+   or not (locality of behavior): opening it sends that version, so the status describes it,
+   and translating translates it. Viewing a translation, its source language's current version
+   is used. The scheduled sync keeps sending the published version; discarding a source draft
+   makes it send the published version again.
 2. **Translation on request**: toolbar "Translate…" (languages, estimate for large
    jobs) and "Translate everything stale" (site-wide, admins). No automatic translation on
    publish in the first version.
@@ -42,6 +47,11 @@ published automatically. CMS content lands as drafts. Editors approve."
    added, removed or moved plugins), aligned plugins are updated, the rest is listed with a
    warning ("3 source plugins have no counterpart"), and "Copy plugin tree from source"
    rebuilds the target draft's structure (texts translated, the rest copied).
+   Plugins **new in the source** aren't a mismatch: they're added to the target draft at the
+   same place, with their children (added 2026-10-01). "New" means the language's drafts never
+   had the plugin; one an editor removed from a translation stays removed and is listed. The
+   source tree is the version that was translated: the published one, or the draft when it was
+   translated on request. Texts without a place keep waiting (toolbar: "*n* waiting").
 
 ## Editor workflow
 

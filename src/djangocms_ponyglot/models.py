@@ -21,11 +21,15 @@ class PluginKey(models.Model):
 
 
 class DraftDelivery(models.Model):
-    """Translations written into a target-language draft (one row per delivery).
+    """The latest delivery of translations into a target-language draft, per unit and
+    language (each delivery replaces the previous one).
 
     `texts_hash` is the hash of the draft's translatable texts right after writing: if the
     draft still has it, nobody edited it, and the next delivery may update it in place.
     `unaligned` lists source segments that had no counterpart in the draft's plugin tree.
+    `plugin_keys` are the keys of every plugin this language's drafts had after any delivery: a
+    source plugin whose key a language's draft never had is new in the source and gets added;
+    one it had and lost was removed by an editor and stays removed.
     """
 
     external_key = models.CharField(max_length=255, db_index=True)
@@ -34,6 +38,7 @@ class DraftDelivery(models.Model):
     version_id = models.PositiveBigIntegerField(null=True)
     texts_hash = models.CharField(max_length=64)
     unaligned = models.JSONField(default=list, blank=True)
+    plugin_keys = models.JSONField(default=list, blank=True)
     delivered_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

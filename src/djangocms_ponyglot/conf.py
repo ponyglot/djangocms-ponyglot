@@ -12,9 +12,14 @@ PONYGLOT = {
         "PLUGINS": {"LinkPlugin": {"fields": ["name"]}},
         # The (inactive) user that authors translation drafts.
         "USER": "ponyglot",
+        # When no sync round ran for this long, the toolbar's translations dialog fetches the
+        # translations of the content it's opened on.
+        "FETCH_AFTER_MINUTES": 15,
     },
 }
 """
+
+from datetime import timedelta
 
 from django.conf import settings
 
@@ -52,3 +57,7 @@ def selected_models():
 
 def username():
     return options().get("USER", "ponyglot")
+
+
+def fetch_after():
+    return timedelta(minutes=options().get("FETCH_AFTER_MINUTES", 15))
