@@ -72,8 +72,7 @@
     {% if todo.ready %}
       <p>{% blocktranslate count n=todo.ready %}{{ n }} translation is ready at Ponyglot.{% plural %}{{ n }} translations are ready at Ponyglot.{% endblocktranslate %}{% if not sync_overdue %} {% translate "It arrives with the next sync." %}{% endif %}</p>
     {% endif %}
-    <p class="muted">{% if last_sync %}{% blocktranslate with when=last_sync.finished_at|timesince %}Last sync: {{ when }} ago.{% endblocktranslate %} {% endif %}
-      <a href="{{ status_url }}{{ keep_qs }}">{% translate "Details and more options" %}</a></p>
+    {% if last_sync %}<p class="muted">{% blocktranslate with when=last_sync.finished_at|timesince %}Last sync: {{ when }} ago.{% endblocktranslate %}</p>{% endif %}
   </div>
   {# One form per general action, with all its fields: the footer buttons submit them through #}
   {# form="…". django CMS submits them with form.submit(), so a button's own name/value isn't sent. #}
@@ -89,6 +88,8 @@
       {% if todo.untranslated_languages|length > 1 or not cloud_status and translate_due %}<button type="submit" form="ponyglot-translate" class="button default">{% if cloud_status %}{% translate "Translate all missing" %}{% else %}{% translate "Send for translation" %}{% endif %}</button>{% endif %}
     {% endif %}
     {% if fetch_due %}<button type="submit" form="ponyglot-fetch" class="button">{% translate "Fetch translations now" %}</button>{% endif %}
+    {# Always one item: with an empty submit row, django CMS takes the first form's button. #}
+    <a href="{{ status_url }}{{ keep_qs }}" class="button">{% translate "Details" %}</a>
   </div>
 </div>
 {% endblock %}

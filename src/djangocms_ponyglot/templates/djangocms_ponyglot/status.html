@@ -135,6 +135,8 @@
       {% endif %}
       {% if fetch_due %}<button type="submit" form="ponyglot-fetch" class="button">{% translate "Fetch translations now" %}</button>{% endif %}
     {% endif %}
+    {# Always one item: with an empty submit row, django CMS takes the first form's button. #}
+    <a href="{% url 'admin:djangocms_ponyglot_panel' ref.key %}{{ keep_qs }}" class="button">{% translate "Back to overview" %}</a>
   </div>
 </div>
 {% endblock %}

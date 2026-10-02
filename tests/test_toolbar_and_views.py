@@ -427,11 +427,15 @@ def test_modal_has_general_actions_only_in_its_footer(
     translate_button = "Translate what changed" if view is status_url else "Send for translation"
     if translate_button in buttons:
         assert buttons[translate_button]["languages"] == ["fr"]  # DE is excluded
-    assert all(f"content={draft.pk}" in fields["action"] for fields in buttons.values())
+    assert all(
+        f"content={draft.pk}" in fields.get("action", fields.get("href"))
+        for fields in buttons.values()
+    )
     if view is status_url:
         assert "Exclude" not in html  # managed under Ponyglot › Exclusions
     else:
-        assert all(fields.get("panel") == ["1"] for fields in buttons.values())
+        forms = [fields for fields in buttons.values() if "href" not in fields]
+        assert all(fields.get("panel") == ["1"] for fields in forms)
 
 
 def test_excluded_content_offers_only_translating_it_again(staff, views_cloud, api, article_ref):
@@ -439,7 +443,7 @@ def test_excluded_content_offers_only_translating_it_again(staff, views_cloud, a
     sync.run(api)
     exclusions.exclude(adapter, article_ref, None)
     buttons = footer(staff.get(status_url(article_ref)).content.decode())
-    assert list(buttons) == ["Translate it again"]
+    assert list(buttons) == ["Translate it again", "Back to overview"]
     assert buttons["Translate it again"]["include"] == ["1"]
 
 
@@ -549,3 +553,17 @@ def test_in_review_explains_that_publishing_clears_it(view, staff, views_cloud, 
 def test_no_admin_list_for_deliveries(staff, admin_client):
     assert "draftdelivery" not in admin_client.get("/en/admin/").content.decode()
     assert admin_client.get("/en/admin/djangocms_ponyglot/draftdelivery/").status_code == 404
+
+
+@pytest.mark.parametrize("view", [panel_url, status_url])
+def test_modal_footer_is_never_empty(view, staff, views_cloud, api, article_ref):
+    """With an empty submit row, django CMS moves the first form's button (a language's
+    "Translate") into its footer: there is always a link to the other view."""
+    sync.backfill()
+    sync.run(api)
+    for segment in views_cloud.units[article_ref.key]["segments"]:
+        views_cloud.states[(article_ref.key, segment["key"], "de")] = "ok"  # only FR missing
+    html = staff.get(view(article_ref)).content.decode()
+    buttons = footer(html)
+    assert "Translate" not in buttons  # a language's own button stays in its row
+    assert {"Details", "Back to overview"} & set(buttons)
