@@ -90,7 +90,7 @@
     {% endif %}
     {% if not jobs %}<p class="help">{% translate "No recent jobs." %}</p>{% endif %}
     <p class="help">{% if last_sync %}{% blocktranslate with when=last_sync.finished_at|timesince %}Last sync: {{ when }} ago.{% endblocktranslate %}{% endif %}
-      {% if sync_overdue %}{% translate "No sync ran lately: set up python manage.py ponyglot sync (cron, or --loop 60 as a worker)." %}{% endif %}</p>
+      {% if sync_overdue %}{% translate "No sync ran lately. “Sync now” sends changes and fetches finished translations." %}{% endif %}</p>
   </section>
 
   {% if held_back %}
@@ -133,7 +133,8 @@
       {% if not todo.translating %}
         {% if translate_due %}<button type="submit" form="ponyglot-translate" class="button default">{% translate "Translate what changed" %}</button>{% endif %}
       {% endif %}
-      {% if fetch_due %}<button type="submit" form="ponyglot-fetch" class="button">{% translate "Fetch translations now" %}</button>{% endif %}
+      {% if sync_overdue %}<button type="submit" form="ponyglot-fetch" class="button">{% translate "Sync now" %}</button>
+      {% elif fetch_due %}<button type="submit" form="ponyglot-fetch" class="button">{% translate "Fetch translations now" %}</button>{% endif %}
     {% endif %}
     {# Always one item: with an empty submit row, django CMS takes the first form's button. #}
     <a href="{% url 'admin:djangocms_ponyglot_panel' ref.key %}{{ keep_qs }}" class="button">{% translate "Back to overview" %}</a>

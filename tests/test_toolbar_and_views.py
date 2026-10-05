@@ -136,12 +136,13 @@ def test_progress_ready_translations_and_fetching_now(staff, views_cloud, api, a
     html = staff.get(status_url(article_ref)).content.decode()
     assert "Jobs" in html and "running" in html  # the job, in progress
     assert "A translation job is running" in html
-    assert "No sync ran lately" in html
+    assert "No sync ran lately" in html and "manage.py" not in html
+    assert "Sync now" in footer(html)  # no sync schedule: sync by hand
 
     translate(views_cloud, article_ref)  # the job finished: results wait in the cloud
     html = staff.get(status_url(article_ref)).content.decode()
     assert "5 translations are ready" in html
-    assert "Fetch translations now" in footer(html)  # no sync schedule: fetch by hand
+    assert "Sync now" in footer(html)
 
     response = staff.post(status_url(article_ref) + "sync/", follow=True)
     html = response.content.decode()
@@ -212,7 +213,7 @@ def test_fetching_is_offered_only_when_the_last_sync_is_old(staff, views_cloud, 
 
     SyncRun.objects.update(finished_at=timezone.now() - timedelta(minutes=16))
     html = staff.get(status_url(article_ref)).content.decode()
-    assert "Fetch translations now" in footer(html)
+    assert "Sync now" in footer(html)  # no sync lately: run one by hand
 
     response = staff.post(status_url(article_ref) + "fetch/", {"panel": "1"}, follow=True)
     assert response.redirect_chain[-1][0].endswith("/panel/")
@@ -508,14 +509,18 @@ def test_fetch_button_hides_after_any_recent_fetch(staff, views_cloud, api, arti
     sync.backfill()
     sync.run(api)
     SyncRun.objects.update(finished_at=timezone.now() - timedelta(minutes=16))
-    assert "Fetch translations now" in footer(staff.get(status_url(article_ref)).content.decode())
+    assert "Sync now" in footer(staff.get(status_url(article_ref)).content.decode())
 
     # Opening the dialog fetched this content's translations: recent again.
     html = staff.get(panel_url(article_ref)).content.decode()
     assert "Fetch translations now" not in footer(html)
-    assert "Fetch translations now" not in footer(
-        staff.get(status_url(article_ref)).content.decode()
-    )
+    buttons = footer(staff.get(status_url(article_ref)).content.decode())
+    assert "Fetch translations now" not in buttons
+    assert "Sync now" in buttons  # still no site-wide sync lately
+
+    sync.run(api)
+    buttons = footer(staff.get(status_url(article_ref)).content.decode())
+    assert "Sync now" not in buttons and "Fetch translations now" not in buttons
     assert SyncRun.objects.filter(unit=article_ref.key).exists()
 
 

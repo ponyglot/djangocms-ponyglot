@@ -34,7 +34,8 @@ First release: Ponyglot for django CMS 5 (with djangocms-versioning). Depends on
     (`FETCH_AFTER_MINUTES`); opening the dialog then fetches by itself.
   - Links to the Ponyglot dashboard only where something needs doing there (texts held by a
     quality check); "in review" clears when the translation is published.
-- A status page with the segment matrix, jobs and the plugin tree copy.
+- A status page with the segment matrix, jobs and the plugin tree copy. When no sync ran
+  lately, it offers "Sync now" (no management commands in the admin).
 - CMS content appears in the core's *Which documents need attention* (Translation dashboard),
   filtered by content type, linking to its status page.
 - Exclusions per content object and language.

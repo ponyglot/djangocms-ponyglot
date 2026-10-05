@@ -3,7 +3,7 @@
 #
 # Until the core is on PyPI, it's checked out next to this repository (`../ponyglot`, as in
 # local development). The core repository is private: the secret PONYGLOT_CORE_TOKEN holds a
-# fine-grained token with read-only "Contents" access to fsbraun/ponyglot. Pull requests from
+# fine-grained token with read-only "Contents" access to ponyglot/ponyglot. Pull requests from
 # forks don't get secrets, so their checks fail at that step.
 # Actions are pinned to commit SHAs; update them deliberately.
 name: Tests
@@ -30,7 +30,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: fsbraun/ponyglot
+          repository: ponyglot/ponyglot
           path: ponyglot
           token: ${{ secrets.PONYGLOT_CORE_TOKEN }}
           persist-credentials: false
@@ -60,7 +60,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: fsbraun/ponyglot
+          repository: ponyglot/ponyglot
           path: ponyglot
           token: ${{ secrets.PONYGLOT_CORE_TOKEN }}
           persist-credentials: false
