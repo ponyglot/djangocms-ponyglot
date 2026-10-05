@@ -587,3 +587,7 @@ def test_documents_overview_links_to_the_status_page(
     ).content.decode()
     assert f'href="{status_url(page_ref)}"' in html
     assert adapter.translation_url("djangocms:nonsense:1") == ""
+
+    html = admin_client.get("/en/admin/ponyglot/translationdashboard/documents/").content.decode()
+    assert f'value="{prefix}"' in html  # the content type filter
+    assert adapter.overview_order == 10  # django CMS first (core test: before Wagtail, models)

@@ -35,6 +35,7 @@ class DjangoCMSAdapter(Adapter):
     name = "djangocms"
     capabilities = frozenset({"qa_errors", "whole_unit"})
     applied_status = "drafted"
+    overview_order = 10  # first on the translation dashboard's documents
 
     def status_after_write(self, ref):
         # Versioned content: written into a draft, approved on publishing (signals.py).
