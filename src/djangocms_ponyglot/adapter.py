@@ -91,6 +91,21 @@ class DjangoCMSAdapter(Adapter):
         ref = parse_key(external_key)
         return ref if ref is not None and ref.exists() else None
 
+    def content_kinds(self):
+        return [
+            (f"{self.name}:{ct.label}:", str(ct.model._meta.verbose_name_plural))
+            for ct in content_types().values()
+        ]
+
+    def translation_url(self, external_key):
+        """The unit's Ponyglot status page in the admin."""
+        from django.urls import reverse
+
+        ref = parse_key(external_key)
+        if ref is None:
+            return ""
+        return reverse("admin:djangocms_ponyglot_status", args=[ref.key])
+
     # --- Snapshots --------------------------------------------------------------------------
 
     def snapshot(self, ref, *, draft=False, content=None):

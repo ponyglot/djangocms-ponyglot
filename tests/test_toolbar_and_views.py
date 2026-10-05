@@ -567,3 +567,18 @@ def test_modal_footer_is_never_empty(view, staff, views_cloud, api, article_ref)
     buttons = footer(html)
     assert "Translate" not in buttons  # a language's own button stays in its row
     assert {"Details", "Back to overview"} & set(buttons)
+
+
+def test_documents_overview_links_to_the_status_page(
+    admin_client, cloud, api, page_ref, monkeypatch
+):
+    """The core's "Documents that need attention" lists CMS content with its status page."""
+    monkeypatch.setattr("ponyglot.overview.Client", lambda: Client(transport=cloud))
+    sync.run(api)
+    prefix = f"djangocms:{page_ref.content_type.label}:"
+    assert (prefix, "page contents") in adapter.content_kinds()
+    html = admin_client.get(
+        f"/en/admin/ponyglot/translationdashboard/documents/?prefix={prefix}"
+    ).content.decode()
+    assert f'href="{status_url(page_ref)}"' in html
+    assert adapter.translation_url("djangocms:nonsense:1") == ""

@@ -5,8 +5,8 @@ aliases, your own models) with glossary, translation memory and delta sync. With
 djangocms-versioning, translations arrive as **drafts**; nothing is published until an editor
 publishes it.
 
-**Early access, pre-alpha.** Requires django CMS 5.1+, Django 5.2+ and the `ponyglot` core;
-djangocms-versioning 2.7+ is recommended. See https://ponyglot.app.
+**Early access, alpha.** Requires Python 3.10+, django CMS 5.1+, Django 5.2+ and the
+`ponyglot` core; djangocms-versioning 2.7+ is recommended. See https://ponyglot.app.
 
 ## Install
 
