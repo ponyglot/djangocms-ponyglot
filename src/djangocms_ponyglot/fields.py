@@ -8,14 +8,20 @@ fields in a JSON model field; those are addressed as `<json field>.<key>`, e.g.
 `config.heading`. A form field is translated if it holds prose:
 
 - a plain `forms.CharField` (subclasses such as URL, slug, email or icon pickers are not),
-  not hidden, and not named like an identifier, code, CSS selector or class, icon or anchor;
-- an `HTMLFormField` (rich text), as HTML.
+  not hidden, not validated as a slug or by a pattern (identifiers such as a form field's
+  name), and not named like an identifier, code, CSS selector or class, icon or anchor;
+- an `HTMLFormField` (rich text), as HTML;
+- in HTML attribute fields (djangocms-attributes-field, e.g. djangocms-frontend's
+  `attributes`), the values of the attributes that hold prose: `alt`, `title`, `aria-label`,
+  `aria-description` and `placeholder` (`config.attributes.alt`). The frontend image plugin
+  keeps its alt text there.
 
 Model fields map to form fields the usual way (a text field becomes a `CharField`, a URL field
 a `URLField`, a field with choices a choice field), so only prose remains. If a form can't be
 built, the model's text fields are used instead.
 
-djangocms-translations' declarations win (`DJANGOCMS_TRANSLATIONS_CONF`, conf.py): `fields`
+djangocms-translations' declarations win (`DJANGOCMS_TRANSLATIONS_CONF`, and
+djangocms-deepl-translations' `DJANGOCMS_DEEPL_TRANSLATIONS_PLUGIN_CONFIG`, conf.py): `fields`
 lists exactly what is translated (JSON key names or dotted paths), `excluded_fields` removes
 fields, and `text_field_child_label` names the field of a plugin embedded in rich text that is
 translated inside the text (in its sentence) rather than on its own.
@@ -25,6 +31,7 @@ from dataclasses import dataclass
 
 from cms.models import CMSPlugin
 from django import forms
+from django.core.validators import RegexValidator
 from django.db import models
 from ponyglot.adapters import is_translatable_field
 from ponyglot.conf import get_config
@@ -51,7 +58,10 @@ _NON_PROSE = {
     "attributes",
     "color",
     "colour",
+    "value",  # a choice's stored value (djangocms-form-builder), not its label
 }
+# HTML attributes whose values are prose, in attribute fields (see the module docstring).
+PROSE_ATTRIBUTES = ("alt", "title", "aria-label", "aria-description", "placeholder")
 # Bookkeeping text fields on content models that are never content.
 _CONTENT_BOOKKEEPING = {
     "language",
@@ -69,7 +79,8 @@ PAGE_CONTENT_FIELDS = ["title", "menu_title", "page_title", "meta_description"]
 
 @dataclass(frozen=True)
 class FieldSpec:
-    """A translated plugin field: `path` is a model field name or `<json field>.<key>`."""
+    """A translated plugin field: `path` is a model field name, or a path into a JSON field
+    (`<json field>.<key>`, `<json field>.<key>.<key>`)."""
 
     path: str
     model_field: object = None  # for plain model fields (format detection, max_length)
@@ -88,38 +99,69 @@ def _field(model, name):
 
 
 def get_value(instance, path):
-    name, _, key = path.partition(".")
+    name, *keys = path.split(".")
     value = getattr(instance, name, None)
-    if key:
+    for key in keys:
         value = value.get(key) if isinstance(value, dict) else None
     return "" if value is None else value
 
 
+def _set_in(data, keys, text):
+    """A copy of the dict `data` with `text` at `keys`, creating missing levels."""
+    data = dict(data) if isinstance(data, dict) else {}
+    key, *rest = keys
+    data[key] = _set_in(data.get(key), rest, text) if rest else text
+    return data
+
+
 def set_value(instance, path, text):
-    name, _, key = path.partition(".")
-    if key:
-        data = dict(getattr(instance, name, None) or {})
-        data[key] = text
-        setattr(instance, name, data)
+    name, *keys = path.split(".")
+    if keys:
+        setattr(instance, name, _set_in(getattr(instance, name, None), keys, text))
     else:
         setattr(instance, name, text)
 
 
-def _is_html_form_field(form_field):
-    return any(cls.__name__ == "HTMLFormField" for cls in type(form_field).__mro__)
+def _class_names(form_field):
+    return {cls.__name__ for cls in type(form_field).__mro__}
+
+
+def _is_identifier(form_field):
+    """Validated by a pattern (slugs included): an identifier, not prose."""
+    return any(isinstance(validator, RegexValidator) for validator in form_field.validators)
 
 
 def prose_kind(name, form_field):
-    """ "html", "plain" or None (not prose) for a form field."""
-    if _is_html_form_field(form_field):
+    """ "html", "plain", "attributes" (an attribute field, see PROSE_ATTRIBUTES) or None (not
+    prose) for a form field."""
+    names = _class_names(form_field)
+    if "HTMLFormField" in names:
         return "html"
+    if "AttributesFormField" in names:
+        # Choices fields (djangocms-frontend) reuse the widget for a list of pairs.
+        return None if "ChoicesFormField" in names else "attributes"
     if type(form_field) is not forms.CharField:
         return None
     if isinstance(form_field.widget, forms.HiddenInput):
         return None
-    if set(name.lower().split("_")) & _NON_PROSE:
+    if _is_identifier(form_field) or set(name.lower().split("_")) & _NON_PROSE:
         return None
     return "plain"
+
+
+def _fieldsets(plugin_class, instance):
+    """The plugin admin's fieldsets. Some plugins add fields at request time in
+    `get_fieldsets()` (djangocms-frontend: "Advanced settings" with `attributes`); that's asked
+    without a request, falling back to the static `fieldsets`."""
+    from cms.plugin_base import CMSPluginBase
+    from django.contrib import admin
+
+    if plugin_class.get_fieldsets is CMSPluginBase.get_fieldsets:
+        return plugin_class.fieldsets
+    try:
+        return plugin_class(type(instance), admin.site).get_fieldsets(None, instance)
+    except Exception:  # noqa: BLE001 (needs a request: the static fieldsets then)
+        return plugin_class.fieldsets
 
 
 def _plugin_form(instance):
@@ -138,8 +180,10 @@ def _plugin_form(instance):
         except Exception:  # noqa: BLE001 (unusual models: fall back to model fields)
             return None, None, ()
     visible = plugin_class.fields
-    if visible is None and plugin_class.fieldsets:
-        visible = flatten_fieldsets(plugin_class.fieldsets)
+    if visible is None:
+        fieldsets = _fieldsets(plugin_class, instance)
+        if fieldsets:
+            visible = flatten_fieldsets(fieldsets)
     hidden = [*(plugin_class.exclude or ()), *(plugin_class.readonly_fields or ())]
     return form, (set(visible) if visible is not None else None), hidden
 
@@ -160,8 +204,18 @@ def _form_fields(instance):
         if kind is None:
             continue
         if name in json_keys:
-            path = f"{json_keys[name]}.{name}"
-            result[path] = FieldSpec(path, None, kind == "html")
+            base = f"{json_keys[name]}.{name}"
+        elif kind == "attributes" and _field(model, name) is not None:
+            base = name  # a JSON model field
+        else:
+            base = None
+        if kind == "attributes":
+            if base is not None:
+                for attribute in PROSE_ATTRIBUTES:
+                    result[f"{base}.{attribute}"] = FieldSpec(f"{base}.{attribute}")
+            continue
+        if base is not None:
+            result[base] = FieldSpec(base, None, kind == "html")
             continue
         model_field = _field(model, name)
         if model_field is None or name in _BASE_FIELDS or not is_translatable_field(model_field):
@@ -180,13 +234,15 @@ def _model_fields(instance):
 
 
 def resolve_path(instance, name):
-    """A declared field name as a path: a model field, else a key of an entangled JSON field."""
-    if "." in name or _field(type(instance), name) is not None:
+    """A declared field name as a path: a model field, else a key of an entangled JSON field
+    (`heading` → `config.heading`, `attributes.alt` → `config.attributes.alt`)."""
+    first, _, rest = name.partition(".")
+    if _field(type(instance), first) is not None:
         return name
     form, _, _ = _plugin_form(instance)
     entangled = getattr(getattr(form, "_meta", None), "entangled_fields", None) or {}
     for field, keys in entangled.items():
-        if name in keys:
+        if first in keys:
             return f"{field}.{name}"
     return name
 

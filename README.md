@@ -57,14 +57,19 @@ translations wait until an editor chooses *Apply*, which writes them live.
 own form or the generated model form, limited by `fields`/`fieldsets`, without `exclude` and
 read-only fields). What editors type into is what gets translated:
 
-- plain text fields (`forms.CharField`), except hidden ones and those named like identifiers,
-  code, CSS selectors or classes, icons or anchors;
-- rich text fields (`HTMLFormField`) as HTML.
+- plain text fields (`forms.CharField`), except hidden ones, those validated as a slug or by a
+  pattern (identifiers, such as djangocms-form-builder's field names) and those named like
+  identifiers, code, CSS selectors or classes, icons or anchors;
+- rich text fields (`HTMLFormField`) as HTML;
+- in HTML attribute fields (djangocms-attributes-field), the attributes that hold prose: `alt`,
+  `title`, `aria-label`, `aria-description` and `placeholder`.
 
 URL, slug, email, choice, link and attribute fields drop out by their form field type. This
 covers **djangocms-frontend**: its entangled forms store texts in the `config` JSON field
 (`config.heading`, `config.quote_content`, `config.name`, …), which are read and written in
-place; code blocks, heading ids and link targets aren't touched. Links embedded in rich text
+place, as are the alt texts and titles in each plugin's "Advanced settings" attributes
+(`config.attributes.alt`; the image plugin's alt text lives there). Code blocks, heading ids,
+CSS classes and link targets aren't touched. Links embedded in rich text
 (djangocms-link's `LinkPlugin`, djangocms-frontend's `TextLinkPlugin`) are translated inside
 their sentence.
 
@@ -80,9 +85,30 @@ DJANGOCMS_TRANSLATIONS_CONF = {
 ```
 
 - `fields`: exactly these fields; `excluded_fields`: leave these out. Names of JSON keys work
-  (`"heading"` means `config.heading` for djangocms-frontend), or dotted paths.
+  (`"heading"` means `config.heading` for djangocms-frontend, `"attributes.title"` means
+  `config.attributes.title`), or dotted paths.
 - `text_field_child_label`: for plugins embedded in rich text (links in djangocms-text), this
   field is translated **inside the sentence** it appears in and written back to the plugin.
+
+A project already set up for
+[djangocms-deepl-translations](https://gitlab.com/kapt/open-source/djangocms-deepl-translations)
+needs no second configuration: its `DJANGOCMS_DEEPL_TRANSLATIONS_PLUGIN_CONFIG` is read too.
+`translatable_fields` (`"config/accordion_item_header"` or key tuples) become `fields`
+(`config.accordion_item_header`), and `no_translation: True` translates nothing in that plugin.
+Only the setting in your project is read; for plugins it doesn't list, the plugin forms decide.
+If both packages' settings name a plugin type, `DJANGOCMS_TRANSLATIONS_CONF` wins.
+
+To see what is translated, run `python manage.py ponyglot_fields` (optionally with plugin
+type names, or `--translated` to leave out plugins without translated fields):
+
+```text
+HeadingPlugin
+  config.heading
+  config.attributes (alt, title, aria-label, aria-description, placeholder)
+TextLinkPlugin  [config.name inside the text it's embedded in]
+  config.name
+  config.attributes (alt, title, aria-label, aria-description, placeholder)
+```
 
 **Content model fields** (one-object-per-language types): pages send title, menu title, page
 title and meta description; other models their text fields except bookkeeping ones, or what
@@ -128,7 +154,7 @@ In `PONYGLOT["DJANGOCMS"]` (the core's settings apply too, see the `ponyglot` RE
 |---|---|---|
 | `MODELS` | all frontend-editable models | e.g. `["cms.pagecontent", "djangocms_stories.postcontent"]` |
 | `CONTENT_FIELDS` | see above | e.g. `{"djangocms_stories.postcontent": ["title", "abstract"]}` |
-| `PLUGINS` | – | like `DJANGOCMS_TRANSLATIONS_CONF`; these entries win |
+| `PLUGINS` | – | like `DJANGOCMS_TRANSLATIONS_CONF`; these entries win over it and `DJANGOCMS_DEEPL_TRANSLATIONS_PLUGIN_CONFIG` |
 | `USER` | `"ponyglot"` | username of the (inactive) user that authors translation drafts |
 | `FETCH_AFTER_MINUTES` | `15` | without a sync round this long, the dialog fetches its content's translations itself |
 

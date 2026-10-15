@@ -691,13 +691,15 @@ requires-dist = [
     { name = "django", specifier = ">=5.2" },
     { name = "django-modeltranslation", marker = "extra == 'modeltranslation'", specifier = ">=0.18" },
     { name = "django-parler", marker = "extra == 'parler'", specifier = ">=2.3" },
+    { name = "polib", marker = "extra == 'gettext'", specifier = ">=1.2" },
 ]
-provides-extras = ["parler", "modeltranslation"]
+provides-extras = ["parler", "modeltranslation", "gettext"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "django-modeltranslation", specifier = ">=0.18" },
     { name = "django-parler", specifier = ">=2.3" },
+    { name = "polib", specifier = ">=1.2" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-django", specifier = ">=4.9" },
     { name = "ruff", specifier = ">=0.12" },

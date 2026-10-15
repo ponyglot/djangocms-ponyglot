@@ -12,8 +12,14 @@ First release: Ponyglot for django CMS 5 (with djangocms-versioning). Depends on
 - Both modes: one content object per language (pages, posts; published separately) and all
   languages in one object (published together); versioned and unversioned.
 - Plugin fields to translate come from each plugin's admin form, for every plugin
-  (djangocms-frontend's entangled fields included); `DJANGOCMS_TRANSLATIONS_CONF`
-  declarations are respected, `PONYGLOT["DJANGOCMS"]["PLUGINS"]` wins.
+  (djangocms-frontend's entangled fields included); `DJANGOCMS_TRANSLATIONS_CONF` and
+  djangocms-deepl-translations' `DJANGOCMS_DEEPL_TRANSLATIONS_PLUGIN_CONFIG` declarations are
+  respected, `PONYGLOT["DJANGOCMS"]["PLUGINS"]` wins.
+- Alt texts, titles, ARIA labels and placeholders in HTML attribute fields (djangocms-frontend's
+  "Advanced settings", e.g. the image plugin's alt text) are translated; other attributes
+  aren't. Fields validated as slugs or by a pattern (e.g. djangocms-form-builder's field
+  names) count as identifiers, not prose.
+- `manage.py ponyglot_fields` lists the translated fields of every installed plugin type.
 - Stable plugin keys across versions and languages, so plugin ids changing with every version
   don't break translations.
 

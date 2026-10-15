@@ -8,7 +8,8 @@ PONYGLOT = {
         # Content model fields per model (default: its text fields, see fields.py).
         "CONTENT_FIELDS": {"djangocms_stories.postcontent": ["title", "abstract"]},
         # Plugin fields, same format as djangocms-translations' DJANGOCMS_TRANSLATIONS_CONF
-        # (which is read too; these entries win).
+        # (which is read too, as is djangocms-deepl-translations'
+        # DJANGOCMS_DEEPL_TRANSLATIONS_PLUGIN_CONFIG; these entries win).
         "PLUGINS": {"LinkPlugin": {"fields": ["name"]}},
         # The (inactive) user that authors translation drafts.
         "USER": "ponyglot",
@@ -36,10 +37,33 @@ DEFAULT_PLUGIN_CONF = {
 }
 
 
+def _deepl_translations_conf(plugin_type):
+    """djangocms-deepl-translations' `DJANGOCMS_DEEPL_TRANSLATIONS_PLUGIN_CONFIG` entry for a
+    plugin type, in our format. Only the project's setting is read, not that package's
+    built-in defaults (the plugin forms cover those). `translatable_fields` are paths into
+    the plugin's model data, `"config/heading"` or `("config", "heading")`: our
+    `"config.heading"`. `no_translation` translates nothing. Text-embedded plugins need no
+    entry there, so `text_field_child_label` stays ours."""
+    entry = getattr(settings, "DJANGOCMS_DEEPL_TRANSLATIONS_PLUGIN_CONFIG", {}).get(plugin_type)
+    if not isinstance(entry, dict):
+        return {}
+    if entry.get("no_translation"):
+        return {"fields": []}
+    if "translatable_fields" not in entry:
+        return {}
+    paths = [
+        path.split("/") if isinstance(path, str) else list(path)
+        for path in entry["translatable_fields"]
+    ]
+    return {"fields": [".".join(key for key in path if key) for path in paths]}
+
+
 def plugin_conf(plugin_type):
-    """djangocms-translations' declaration for a plugin type, overridden by ours:
+    """djangocms-deepl-translations' and djangocms-translations' declarations for a plugin
+    type (the latter wins), overridden by ours:
     `{"fields": [...], "excluded_fields": [...], "text_field_child_label": "..."}`."""
     conf = dict(DEFAULT_PLUGIN_CONF.get(plugin_type, {}))
+    conf.update(_deepl_translations_conf(plugin_type))
     conf.update(getattr(settings, "DJANGOCMS_TRANSLATIONS_CONF", {}).get(plugin_type, {}))
     conf.update(options().get("PLUGINS", {}).get(plugin_type, {}))
     return conf
