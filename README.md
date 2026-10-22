@@ -137,14 +137,42 @@ title and meta description; other models their text fields except bookkeeping on
   shows "*n* to review" for languages with a draft or translations waiting.
 - **Approve:** publishing reports the approval, including your corrections (they go into the
   translation memory). Discarding or archiving a delivered draft reports a rejection.
-- **New plugins:** plugins added to the source are added to the translations at the same place,
-  with their children; nothing is removed or moved.
+- **Source structure changes** are merged into the translations (three-way: the source tree
+  at the last delivery, the source now, the translation now):
+  - **added** plugins are copied in at the same place, with their children, together with
+    their translations (right away if they have no texts, e.g. an image);
+  - **moved** plugins (to another parent or another order) are moved, unless an editor moved
+    them in the translation too: the editor's place wins;
+  - **deleted** plugins are listed in the dialog, *Delete here too* or *Keep*; never deleted
+    without confirmation;
+  - plugins an editor removed from or added to a translation stay as they are.
+
+  Moves and plugins without texts bring no new texts to translate, so publishing the source
+  merges them right away (a new draft of each translation that has none an editor edited);
+  content with all languages in one object merges with the next delivery.
+- **Existing translations:** a language translated before Ponyglot is matched plugin by
+  plugin: same placeholder, plugin type and position in the tree. If all source plugins have a
+  counterpart, translations go into it (a new draft of it). If not, nothing is written until an
+  editor chooses in the dialog: **Add to existing *language*** (keeps its plugins, fills in the
+  translations where plugins match, in its draft or a new draft of it; texts without a
+  counterpart keep waiting) or **Start from *source language*** (a draft with a translated copy
+  of the source plugins). Either way, the published version stays until the draft is published.
 - **Different structure:** texts without a counterpart in the translated plugin tree (e.g. a
   plugin an editor removed from the translation) keep waiting and are listed with **Copy plugin
   tree from source**.
 - **QA:** depending on your plan, QA errors are shown next to the texts for editors to fix, or
   held back for a separate review; the status lists what is waiting and why.
 - **Exclude:** keep content out of translation, for all or some languages.
+
+## Publish right away
+
+In the toolbar dialog and the status page, editors who may publish the content (djangocms-
+versioning's publish permission) can tick **Publish the translation right away** before
+translating (`PONYGLOT["PUBLISH_BY_DEFAULT"]` pre-ticks it). The translation is then written
+into a draft as usual and published in the editor's name, if no QA error was found and the
+draft holds only these translations. Only for content types with one content object per
+language (pages, posts): shared content would publish every language at once. Otherwise the
+draft waits for review, and the sync report says why.
 
 ## Settings
 

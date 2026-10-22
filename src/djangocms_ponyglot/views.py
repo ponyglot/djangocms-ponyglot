@@ -17,7 +17,7 @@ from django.utils import timezone
 from django.utils.http import urlencode
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy, ngettext
-from ponyglot import exclusions, sync
+from ponyglot import exclusions, publishing, sync
 from ponyglot import suggestions as suggestion_service
 from ponyglot.adapters import registry
 from ponyglot.client import APIError, Client, ConfigurationError
@@ -26,7 +26,7 @@ from ponyglot.models import HeldBack, Suggestion, SuggestionStatus, SyncState
 
 from .conf import fetch_after
 from .contenttypes import parse_key
-from .delivery import waiting, write
+from .delivery import keep_removed, needs_choice, waiting, write
 from .models import DraftDelivery
 
 SYMBOLS = {
@@ -211,6 +211,8 @@ def _languages(ref, cloud_status, rows, jobs):
             "excluded": exclusions.is_excluded(ref.key, code),
             "waiting": waiting(ref, code).count(),
             "unaligned": delivery.unaligned if delivery else [],
+            # Plugins deleted from the source that the translation still has.
+            "removed": len(delivery.removed) if delivery else 0,
             "draft_url": get_object_edit_url(draft, language=code) if draft else None,
             "untranslated": untranslated,
             "in_review": in_review,
@@ -220,11 +222,14 @@ def _languages(ref, cloud_status, rows, jobs):
                 job.get("languages") is None or code in job["languages"] for job in running
             ),
         }
+        # A translation exists that differs from the source: the editor chooses how to go on.
+        lang["choose"] = bool(lang["waiting"]) and needs_choice(ref, code)
         lang["done"] = (
             code in cloud_codes
             and not lang["excluded"]
             and not (untranslated or in_review or held or lang["waiting"] or draft)
             and not lang["unaligned"]
+            and not lang["removed"]
         )
         languages.append(lang)
     return languages
@@ -237,11 +242,14 @@ def _todo(languages, jobs, ready, cloud_status):
     untranslated = [lang for lang in active if lang["untranslated"]]
     to_apply = [lang for lang in active if lang["waiting"]]
     to_publish = [lang for lang in active if lang["draft_url"] and not lang["waiting"]]
+    to_remove = [lang for lang in active if lang["removed"]]
     in_review = sum(lang["in_review"] for lang in active)
     held = sum(lang["held"] for lang in active)
     translating = any(job.get("status") in ACTIVE_JOB for job in jobs)
-    editor = bool((untranslated and not translating) or ready or to_apply or to_publish)
-    work = bool(untranslated or in_review or held or ready or to_apply or to_publish)
+    editor = bool(
+        (untranslated and not translating) or ready or to_apply or to_publish or to_remove
+    )
+    work = bool(untranslated or in_review or held or ready or to_apply or to_publish or to_remove)
     return {
         "untranslated": sum(lang["untranslated"] for lang in untranslated),
         "untranslated_languages": [lang["code"] for lang in untranslated],
@@ -251,6 +259,7 @@ def _todo(languages, jobs, ready, cloud_status):
         "ready": ready,
         "to_apply": to_apply,
         "to_publish": to_publish,
+        "to_remove": to_remove,
         "editor": editor,
         "any": work,
         "all_done": bool(cloud_status) and not work and not translating,
@@ -307,6 +316,9 @@ def _overview(ref, *, refresh=False, source=None):
         # lately (by the schedule, the dialog or the button).
         "fetch_due": sync_overdue(sync.last_fetch(ref.key)),
         "source_label": _source_label(ref, source),
+        "source_name": dict(settings.LANGUAGES).get(
+            get_config().source_language, get_config().source_language
+        ),
     }
 
 
@@ -318,6 +330,7 @@ def status(request, key):
         held_back=HeldBack.objects.filter(external_key=ref.key),
         exclusion=exclusions.get(ref.key),
         title=_("Translation of “%s”") % ref,
+        publish=publishing.choice(request.user, _adapter(), ref),
     )
     context.update(_keep(request))
     return render(request, "djangocms_ponyglot/status.html", context)
@@ -328,7 +341,11 @@ def panel(request, key):
     Fetches this content's translations first when no sync round ran lately."""
     ref = _ref(request, key)
     context = _overview(ref, refresh=True, source=viewed_source(request, ref))
-    context.update(status_url=status_url(ref), title=_("Translations of “%s”") % ref)
+    context.update(
+        status_url=status_url(ref),
+        title=_("Translations of “%s”") % ref,
+        publish=publishing.choice(request.user, _adapter(), ref),
+    )
     context.update(_keep(request))
     return render(request, "djangocms_ponyglot/panel.html", context)
 
@@ -357,6 +374,7 @@ def translate(request, key):
     if request.method != "POST":
         return _back(request, ref)
     languages = request.POST.getlist("languages")
+    publish = publishing.requested(request) and _adapter().can_publish(request.user, ref)
     try:
         client = _client()
         _push_source(client, ref, viewed_source(request, ref))
@@ -365,6 +383,8 @@ def translate(request, key):
             payload["languages"] = languages
         if request.POST.get("confirm"):
             payload["confirm"] = True
+        if publish:
+            payload.update(publishing.job_options(request))
         job = client.create_job(**payload)
     except APIError as error:
         if error.code == "confirmation_required":
@@ -376,6 +396,7 @@ def translate(request, key):
                     "estimate": error.data.get("estimate", {}),
                     "languages": languages,
                     "panel": request.POST.get("panel"),
+                    "publish_requested": publish,
                     "back_url": _back_url(request, ref),
                     **_keep(request),
                     "title": _("Confirm translation"),
@@ -386,14 +407,18 @@ def translate(request, key):
     except ConfigurationError as error:
         messages.error(request, str(error))
         return _back(request, ref)
-    messages.success(
-        request,
-        _(
+    if publish:
+        message = _(
+            "Translation requested (%(segments)s segments). When the job is done, “Fetch "
+            "translations now” brings it in and publishes it as you (or wait for the next "
+            "scheduled sync)."
+        )
+    else:
+        message = _(
             "Translation requested (%(segments)s segments). When the job is done, “Fetch "
             "translations now” brings it into your drafts (or wait for the next scheduled sync)."
         )
-        % {"segments": job.get("estimated_segments", 0)},
-    )
+    messages.success(request, message % {"segments": job.get("estimated_segments", 0)})
     return _back(request, ref)
 
 
@@ -443,8 +468,32 @@ def copy_tree(request, key, language):
             language=language,
             status__in=[SuggestionStatus.DRAFTED, SuggestionStatus.PENDING],
         ).order_by("created_at")
-        write(ref, language, {s.field: s.applied_text for s in live}, force=True, rebuild=True)
+        live = list(live)
+        delivery = write(
+            ref, language, {s.field: s.applied_text for s in live}, force=True, rebuild=True
+        )
+        if delivery is not None:
+            # Like a delivery: what found its place is in the draft now, not waiting.
+            placed = [
+                s.pk
+                for s in live
+                if s.status == SuggestionStatus.PENDING and s.field not in delivery.unaligned
+            ]
+            Suggestion.objects.filter(pk__in=placed).update(status=SuggestionStatus.DRAFTED)
         messages.success(request, _("Plugin tree copied from the source."))
+    return _back(request, ref)
+
+
+def removed(request, key, language):
+    """Plugins deleted from the source: delete them from the translation's draft too, or keep
+    them there (they become translation-only)."""
+    ref = _ref(request, key)
+    if request.method == "POST":
+        if request.POST.get("keep"):
+            keep_removed(ref, language)
+            messages.success(request, _("The plugins stay in the translation."))
+        elif write(ref, language, {}, force=True, remove=True) is not None:
+            messages.success(request, _("The plugins were removed from the translation's draft."))
     return _back(request, ref)
 
 

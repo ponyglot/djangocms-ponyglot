@@ -39,7 +39,9 @@
           {% if lang.excluded %}<span class="muted">{% translate "Not translated (excluded)" %}</span>
           {% elif lang.done %}<span class="ok">✓ {% translate "Up to date" %}</span>
           {% else %}
-            {% if lang.waiting %}<span class="note">{% blocktranslate count n=lang.waiting %}{{ n }} translation to apply{% plural %}{{ n }} translations to apply{% endblocktranslate %}</span>{% endif %}
+{% if lang.removed %}<span class="note warn">{% blocktranslate count n=lang.removed with source=source_name %}{{ n }} plugin was deleted from {{ source }}{% plural %}{{ n }} plugins were deleted from {{ source }}{% endblocktranslate %}</span>{% endif %}
+            {% if lang.choose %}<span class="note warn">{% blocktranslate with source=source_name %}Already translated, laid out differently from {{ source }}: choose how to go on{% endblocktranslate %}</span>
+            {% elif lang.waiting %}<span class="note">{% blocktranslate count n=lang.waiting %}{{ n }} translation to apply{% plural %}{{ n }} translations to apply{% endblocktranslate %}</span>{% endif %}
             {% if lang.draft_url and not lang.waiting %}<span class="note">{% if versioned %}{% translate "Translated draft ready for review" %}{% endif %}</span>{% endif %}
             {% if lang.untranslated %}<span class="note">{% if lang.translating %}{% translate "Being translated…" %}{% else %}{% blocktranslate count n=lang.untranslated %}{{ n }} text missing or outdated{% plural %}{{ n }} texts missing or outdated{% endblocktranslate %}{% endif %}</span>{% endif %}
             {% if lang.in_review %}<span class="note">{% blocktranslate count n=lang.in_review %}{{ n }} text in review at Ponyglot{% plural %}{{ n }} texts in review at Ponyglot{% endblocktranslate %}</span>{% endif %}
@@ -50,15 +52,26 @@
         </td>
         <td class="actions">
           {% if not lang.excluded %}
-            {% if lang.waiting %}
+            {% if lang.choose %}
+              <form method="post" action="{% url 'admin:djangocms_ponyglot_apply' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1">
+                <button type="submit" class="button" title="{% translate "Keeps its plugins; texts without a counterpart keep waiting." %}">{% blocktranslate with name=lang.name %}Add to existing {{ name }}{% endblocktranslate %}</button></form>
+              <form method="post" action="{% url 'admin:djangocms_ponyglot_copy_tree' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1">
+                <button type="submit" class="button" title="{% translate "Replaces its plugins in the draft with a translated copy of the source." %}">{% blocktranslate with source=source_name %}Start from {{ source }}{% endblocktranslate %}</button></form>
+            {% elif lang.waiting %}
               <form method="post" action="{% url 'admin:djangocms_ponyglot_apply' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1">
                 <button type="submit" class="button default">{% if versioned %}{% translate "Apply to draft" %}{% else %}{% translate "Apply (publishes)" %}{% endif %}</button></form>
             {% elif lang.draft_url %}
               <a href="{{ lang.draft_url }}" target="_top" class="button default">{% translate "Review draft" %}</a>
             {% endif %}
+            {% if lang.removed %}
+              <form method="post" action="{% url 'admin:djangocms_ponyglot_removed' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1">
+                <button type="submit" class="button">{% translate "Delete here too" %}</button></form>
+              <form method="post" action="{% url 'admin:djangocms_ponyglot_removed' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1"><input type="hidden" name="keep" value="1">
+                <button type="submit" class="button">{% translate "Keep" %}</button></form>
+            {% endif %}
             {% if lang.untranslated and not lang.translating %}
               <form method="post" action="{% url 'admin:djangocms_ponyglot_translate' ref.key %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1">
-                <input type="hidden" name="languages" value="{{ lang.code }}">
+                <input type="hidden" name="languages" value="{{ lang.code }}">{% include "admin/ponyglot/partials/publish_field.html" %}
                 <button type="submit" class="button">{% translate "Translate" %}</button></form>
             {% endif %}
           {% endif %}
@@ -66,7 +79,12 @@
       </tr>
     {% endfor %}
   </table>
+  {% for lang in languages %}{% if lang.choose %}
+    <p class="help">{% blocktranslate with name=lang.name source=source_name %}{{ name }} was translated before, and its plugins differ from {{ source }}. <strong>Add to existing {{ name }}</strong> keeps them and fills in the translations where the plugins match (in its draft, or a new draft of it). <strong>Start from {{ source }}</strong> replaces them with a translated copy of the {{ source }} plugins, in a draft. Either way, nothing is published until you publish the draft.{% endblocktranslate %}</p>
+  {% endif %}{% endfor %}
   {% if todo.in_review %}<p class="help">{% translate "“In review” clears as soon as the translated content is published: publishing approves the translations. Ponyglot may learn about it with a short delay." %}</p>{% endif %}
+
+  {% if translate_due and not todo.translating %}{% include "admin/ponyglot/partials/publish_choice.html" %}{% endif %}
 
   <div class="footer">
     {% if todo.ready %}
@@ -79,6 +97,7 @@
   <form id="ponyglot-translate" method="post" action="{% url 'admin:djangocms_ponyglot_translate' ref.key %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1">
     {% if cloud_status and todo.untranslated_languages %}{% for code in todo.untranslated_languages %}<input type="hidden" name="languages" value="{{ code }}">{% endfor %}
     {% else %}{% for lang in languages %}{% if not lang.excluded %}<input type="hidden" name="languages" value="{{ lang.code }}">{% endif %}{% endfor %}{% endif %}
+    {% include "admin/ponyglot/partials/publish_field.html" %}
     </form>
   <form id="ponyglot-fetch" method="post" action="{% url 'admin:djangocms_ponyglot_fetch' ref.key %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="panel" value="1"></form>
   {# The CMS modal pulls the buttons of the first submit-row into its footer: buttons only #}

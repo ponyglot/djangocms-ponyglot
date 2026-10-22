@@ -30,6 +30,10 @@ class DraftDelivery(models.Model):
     `plugin_keys` are the keys of every plugin this language's drafts had after any delivery: a
     source plugin whose key a language's draft never had is new in the source and gets added;
     one it had and lost was removed by an editor and stays removed.
+    `structure` is the source tree the delivery was made from (`{key: [slot, parent key,
+    index]}`), the base of the next three-way merge (merge.py); `removed` the keys of plugins
+    deleted from the source that the translation still has, until an editor confirms or keeps
+    them.
     """
 
     external_key = models.CharField(max_length=255, db_index=True)
@@ -39,6 +43,8 @@ class DraftDelivery(models.Model):
     texts_hash = models.CharField(max_length=64)
     unaligned = models.JSONField(default=list, blank=True)
     plugin_keys = models.JSONField(default=list, blank=True)
+    structure = models.JSONField(default=dict, blank=True)
+    removed = models.JSONField(default=list, blank=True)
     delivered_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

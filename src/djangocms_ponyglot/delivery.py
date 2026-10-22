@@ -16,12 +16,23 @@ edited isn't written: the translations wait as pending suggestions until an edit
 "Apply" (`force=True`). Unversioned content types are never written automatically (writing
 would publish): translations wait for an editor's "Apply", which writes them live.
 
+**A translation that exists already** (made by hand, before Ponyglot) and whose plugins differ
+from the source's is never merged automatically: the translations wait until an editor chooses
+(`needs_choice`) to add them to that translation (into its draft, or a new draft from it; texts
+without a counterpart keep waiting) or to start from a copy of the source plugins. If its plugins
+all match the source's, the translations go into it without asking.
+
 Only the plugins whose texts changed are touched, so editors' corrections elsewhere stay.
 The source tree is the version the translations were made from: the published one, or the draft
-when it was translated on request. Plugins new in the source are added to the target tree at
-the same place, with their children (never removing or moving anything); source texts still
-without a counterpart (e.g. a plugin an editor removed from the translation) are recorded as
-`unaligned` and wait as pending suggestions; "Copy plugin tree from source" rebuilds the tree.
+when it was translated on request. Its structural changes since the last delivery are merged
+into the translation (three-way, merge.py): plugins new in the source are added at the same
+place, with their children (with their translations, or right away if they have no texts);
+plugins moved in the source are moved, unless an editor moved them in the translation; plugins
+deleted from the source are listed for an editor to confirm (`DraftDelivery.removed`). Moves and
+text-free plugins can't wait for a delivery (no text changed), so publishing the source merges
+them too (`follow_source`, per-language content types). Source texts still without a
+counterpart (e.g. a plugin an editor removed from the translation) are recorded as `unaligned`
+and wait as pending suggestions; "Copy plugin tree from source" rebuilds the tree.
 """
 
 import hashlib
@@ -33,15 +44,17 @@ from cms.utils.plugins import copy_plugins_to_placeholder
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
+from django.utils.translation import gettext as _
+from ponyglot import publishing
 from ponyglot.conf import get_config
 from ponyglot.exclusions import is_excluded
 from ponyglot.models import Suggestion, SuggestionStatus
 
-from . import conf
+from . import conf, merge
 from . import keys as plugin_keys
 from .adapter import align
 from .extract import texts, write_values
-from .fields import content_fields
+from .fields import content_fields, get_value, plugin_fields
 from .models import DraftDelivery
 
 
@@ -121,6 +134,25 @@ def source_content(ref, values=()):
     return current if coverage(current) > coverage(published) else published
 
 
+def needs_choice(ref, language, values=()):
+    """Whether writing translations needs an editor's choice between keeping the language's
+    existing translation and starting from a copy of the source plugins: it has plugins this
+    connector never delivered to, and they don't all match the source's. Clear cases don't
+    ask: no plugins yet (copied from the source), a translation delivered to before, or one
+    whose plugins all match."""
+    if DraftDelivery.objects.filter(external_key=ref.key, language=language).exists():
+        return False
+    content = ref.latest(language) if ref.content_type.per_language else ref.latest()
+    if content is None or not _has_plugins(content, language):
+        return False
+    source = source_content(ref, values)
+    if source is None:
+        return False
+    align(ref, content, language, source)
+    source_keys = set(plugin_keys.plugins_by_key(source, get_config().source_language))
+    return not source_keys <= set(plugin_keys.plugins_by_key(content, language))
+
+
 def _known_keys(ref, language):
     """Plugin keys this language's drafts had in any delivery so far."""
     known = set()
@@ -145,15 +177,30 @@ def _children(plugins):
     return children
 
 
+def _has_texts(plugins):
+    for plugin in plugins:
+        instance = plugin.get_plugin_instance()[0]
+        if instance is None:
+            continue
+        for name in plugin_fields(instance):
+            value = get_value(instance, name)
+            if isinstance(value, str) and value.strip():
+                return True
+    return False
+
+
 def add_new_plugins(ref, source, target, language, values):
     """Copy plugins new in the source (with their children) into the target tree, after their
-    preceding sibling. Only subtrees with texts in this delivery whose keys the language never
-    had: plugins an editor removed from the translation stay removed. Returns the count."""
+    preceding sibling. Only plugins whose keys the language never had (plugins an editor removed
+    from the translation stay removed), and only with their translations: subtrees with texts
+    in this delivery, or without any texts. Children the target already has (moved there) are
+    left out; the merge moves them. Returns the count."""
     source_language = get_config().source_language
-    new = _plugin_keys(values) - _known_keys(ref, language)
+    source_keys = plugin_keys.ensure_keys(source, source_language)
+    new = set(source_keys.values()) - _known_keys(ref, language)
     if not new:
         return 0
-    source_keys = plugin_keys.ensure_keys(source, source_language)
+    delivered = _plugin_keys(values)
     added = 0
     for slot, plugins in plugin_keys.plugins_by_slot(source, source_language).items():
         children = _children(plugins)
@@ -166,8 +213,10 @@ def add_new_plugins(ref, source, target, language, values):
             if parent is not None and source_keys[parent.pk] not in targets:
                 continue  # copied with its parent, or the parent isn't in the translation
             tree = _subtree(plugin, children)
-            if not new & {source_keys[p.pk] for p in tree}:
+            tree_keys = {source_keys[p.pk] for p in tree}
+            if not new & tree_keys or (not delivered & tree_keys and _has_texts(tree)):
                 continue
+            tree = _without_present(tree, children, source_keys, targets)
             target_parent = targets[source_keys[parent.pk]] if parent is not None else None
             placeholder = _placeholder(target, slot)
             position = _insert_position(
@@ -190,6 +239,15 @@ def add_new_plugins(ref, source, target, language, values):
             )
             added += len(tree)
     return added
+
+
+def _without_present(tree, children, source_keys, targets):
+    """The subtree without the plugins (and their descendants) the target has already."""
+    skip = set()
+    for plugin in tree[1:]:
+        if plugin.pk in skip or source_keys[plugin.pk] in targets:
+            skip |= {p.pk for p in _subtree(plugin, children)}
+    return [p for p in tree if p.pk not in skip]
 
 
 def _insert_position(placeholder, language, target_parent, plugin, children, source_keys, targets):
@@ -284,6 +342,8 @@ def target_content(ref, language, values, *, force=False, rebuild=False):
         return None
     if not ct.versioned and not force:
         return None
+    if not force and needs_choice(ref, language, values):
+        return None  # an editor chooses: keep the existing translation, or copy the source
     user = service_user()
     content = ref.latest(language) if ct.per_language else ref.latest()
     if content is None:
@@ -303,18 +363,98 @@ def target_content(ref, language, values, *, force=False, rebuild=False):
         copy_tree(ref, source, content, language)
     else:
         align(ref, content, language, source)
-        add_new_plugins(ref, source, content, language, values)
+        if _known_keys(ref, language):
+            # Not on the first delivery into an existing translation: what it lacks of the
+            # source isn't new, the editor chose to keep it as it is.
+            merge_structure(ref, source, content, language, values)
     return content
 
 
+def _latest_delivery(ref, language):
+    return DraftDelivery.objects.filter(external_key=ref.key, language=language).first()
+
+
+def merge_structure(ref, source, content, language, values=()):
+    """Carry the source's insertions and moves since the last delivery into the target."""
+    add_new_plugins(ref, source, content, language, values)
+    delivery = _latest_delivery(ref, language)
+    base = merge.from_json(delivery.structure) if delivery else {}
+    source_tree = merge.structure(source, get_config().source_language)
+    target_tree = merge.structure(content, language)
+    merge.apply_moves(content, language, source_tree, merge.to_move(base, source_tree, target_tree))
+
+
+def _structure_changes(ref, language):
+    """`(delivery, needs writing, removed keys)`: whether the source's structure changed since
+    the last delivery in a way that is carried over without asking (insertions without texts,
+    moves), and which deleted source plugins the translation still has."""
+    delivery = _latest_delivery(ref, language)
+    if delivery is None or not delivery.structure:
+        return delivery, False, []
+    source_language = get_config().source_language
+    source = ref.published(source_language)
+    content = ref.latest(language) if ref.content_type.per_language else ref.latest()
+    if source is None or content is None:
+        return delivery, False, []
+    base = merge.from_json(delivery.structure)
+    source_tree = merge.structure(source, source_language)
+    target_tree = merge.structure(content, language)
+    removed = merge.removed(base, source_tree, target_tree, delivery.removed)
+    if merge.to_move(base, source_tree, target_tree):
+        return delivery, True, removed
+    source_keys = plugin_keys.ensure_keys(source, source_language)
+    new = set(source_keys.values()) - set(delivery.plugin_keys)
+    for plugins in plugin_keys.plugins_by_slot(source, source_language).values():
+        children = _children(plugins)
+        for plugin in plugins:
+            if source_keys[plugin.pk] in new and not _has_texts(_subtree(plugin, children)):
+                return delivery, True, removed
+    return delivery, False, removed
+
+
+def follow_source(ref):
+    """The source was published: carry its moves and text-free new plugins into each
+    translation's draft now (they bring no texts, so no delivery would), and list deleted
+    plugins for confirmation. Translations with an editor's draft wait for the next "Apply"."""
+    for language in sorted(
+        set(DraftDelivery.objects.filter(external_key=ref.key).values_list("language", flat=True))
+    ):
+        if is_excluded(ref.key, language):
+            continue
+        delivery, writing, removed = _structure_changes(ref, language)
+        if writing and write(ref, language, {}) is not None:
+            continue
+        if delivery is not None and removed != delivery.removed:
+            delivery.removed = removed
+            delivery.save(update_fields=["removed"])
+
+
 @transaction.atomic
-def write(ref, language, values, *, force=False, rebuild=False):
-    """Write translations; returns the `DraftDelivery`, or None if nothing was written."""
+def write(ref, language, values, *, force=False, rebuild=False, remove=False):
+    """Write translations; returns the `DraftDelivery`, or None if nothing was written.
+    `remove`: also delete the plugins deleted from the source (an editor confirmed)."""
+    known = _known_keys(ref, language)
+    previous = _latest_delivery(ref, language)
     content = target_content(ref, language, values, force=force, rebuild=rebuild)
     if content is None:
         return None
     unaligned = write_values(ref, content, language, values)
-    present = sorted(plugin_keys.plugins_by_key(content, language))
+    source = source_content(ref, values)
+    source_tree = merge.structure(source, get_config().source_language)
+    removed = []
+    if previous is not None and not rebuild:
+        target_tree = merge.structure(content, language)
+        removed = merge.removed(
+            merge.from_json(previous.structure), source_tree, target_tree, previous.removed
+        )
+    if remove and removed:
+        _delete_plugins(content, language, removed)
+        removed = []
+    present = set(plugin_keys.plugins_by_key(content, language))
+    if not known:
+        # The first delivery accepts the translation's tree as it is: source plugins it lacks
+        # count as removed, and only plugins added to the source later are added to it.
+        present |= set(source_tree)
     version_id = None
     if ref.content_type.versioned:
         from djangocms_versioning.models import Version
@@ -327,13 +467,52 @@ def write(ref, language, values, *, force=False, rebuild=False):
         version_id=version_id,
         texts_hash=texts_hash(ref, content, language),
         unaligned=unaligned,
-        plugin_keys=sorted(_known_keys(ref, language) | set(present)),
+        plugin_keys=sorted(known | present),
+        structure=merge.as_json(source_tree),
+        removed=removed,
     )
     # Only the latest delivery per unit and language is needed: it carries the keys of all.
     DraftDelivery.objects.filter(external_key=ref.key, language=language).exclude(
         pk=delivery.pk
     ).delete()
     return delivery
+
+
+def _delete_plugins(content, language, keys):
+    targets = plugin_keys.plugins_by_key(content, language)
+    by_placeholder = defaultdict(list)
+    for key in keys:
+        if key in targets:
+            by_placeholder[targets[key].placeholder_id].append(targets[key])
+    for placeholder_id, plugins in by_placeholder.items():
+        placeholder = Placeholder.objects.get(pk=placeholder_id)
+        ids = {p.pk for p in plugins}
+        # Descendants go with their ancestor.
+        top = [p for p in plugins if not _has_ancestor_in(p, ids)]
+        for plugin in top:
+            placeholder.delete_plugin(CMSPlugin.objects.get(pk=plugin.pk))
+
+
+def _has_ancestor_in(plugin, ids):
+    parent_id = plugin.parent_id
+    while parent_id:
+        if parent_id in ids:
+            return True
+        parent_id = CMSPlugin.objects.filter(pk=parent_id).values_list("parent_id", flat=True)[0]
+    return False
+
+
+def keep_removed(ref, language):
+    """An editor keeps the plugins deleted from the source: they become translation-only (out
+    of the base too, so the next merge doesn't see them deleted again)."""
+    delivery = _latest_delivery(ref, language)
+    if delivery is None:
+        return
+    delivery.structure = {
+        key: node for key, node in delivery.structure.items() if key not in delivery.removed
+    }
+    delivery.removed = []
+    delivery.save(update_fields=["structure", "removed"])
 
 
 def deliver(adapter, results):
@@ -345,18 +524,54 @@ def deliver(adapter, results):
             handled.append(result["id"])
         else:
             groups[(ref.key, result["language"])].append((ref, result))
-    for (_, language), items in groups.items():
+    for (_key, language), items in groups.items():
         ref = items[0][0]
         with transaction.atomic():
-            fresh = [s for s in (_store(adapter, result) for _, result in items) if s]
+            fresh = [s for s in (_store(adapter, result) for _ref, result in items) if s]
+            delivery = None
             if fresh and ref.content_type.versioned:
                 delivery = write(ref, language, {s.field: s.text for s in fresh})
                 if delivery is not None:
                     # Texts without a place in the draft keep waiting (shown as "waiting").
                     placed = [s.pk for s in fresh if s.field not in delivery.unaligned]
                     Suggestion.objects.filter(pk__in=placed).update(status=SuggestionStatus.DRAFTED)
-        handled += [result["id"] for _, result in items]
+            if fresh:
+                results = [result for _ref, result in items]
+                publish_requested(adapter, ref, language, results, delivery)
+        handled += [result["id"] for _ref, result in items]
     return handled
+
+
+def publish_requested(adapter, ref, language, results, delivery):
+    """Publish the draft as the editor who asked for it (ponyglot.publishing), if it holds only
+    these translations; otherwise it stays a draft and the sync report says why."""
+    user, reason = publishing.editor(results)
+    if user is None:
+        if reason:
+            publishing.not_published(ref.key, language, reason)
+        return
+    if delivery is None:
+        reason = _("the draft has an editor's changes, or the translation needs a choice")
+    elif not adapter.can_publish(user, ref, language):
+        reason = _("the editor may not publish it (any more), or it's shared by all languages")
+    elif publishing.others_waiting(ref.key, language, [result["id"] for result in results]):
+        reason = _("the draft holds other translations waiting for review")
+    if reason:
+        publishing.not_published(ref.key, language, reason)
+        return
+    from djangocms_versioning.models import Version
+
+    version = Version.objects.get(pk=delivery.version_id)
+    drafted = Suggestion.objects.filter(
+        result_id__in=[result["id"] for result in results], status=SuggestionStatus.DRAFTED
+    )
+    try:
+        with transaction.atomic():
+            # Before publishing: publishing a translation reports its drafted texts as approved.
+            publishing.mark(drafted, user)
+            version.publish(user)
+    except Exception as error:  # noqa: BLE001 (e.g. a URL collision; the draft stays)
+        publishing.not_published(ref.key, language, str(error) or type(error).__name__)
 
 
 def _store(adapter, result):

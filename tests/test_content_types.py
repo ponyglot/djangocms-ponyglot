@@ -505,6 +505,83 @@ def test_existing_translations_are_imported(api, cloud, page, page_ref, editor):
     assert imported["title"] == "Preise" and "Agentur" in imported.values()
 
 
+def hand_translated(page, editor, *, matching):
+    """A published German page made by hand: a copy of the English plugins, or a tree of its
+    own (one teaser where the English page has a text: no counterpart)."""
+    from cms.api import create_page_content
+    from cms.utils.plugins import copy_plugins_to_placeholder
+
+    source = PageContent.objects.get(page=page, language="en")
+    target = create_page_content("de", "Preise", page, created_by=editor)
+    if matching:
+        copy_plugins_to_placeholder(
+            list(placeholder_of(source).get_plugins("en").order_by("position")),
+            placeholder_of(target),
+            language="de",
+        )
+    else:
+        add_plugin(placeholder_of(target), "TeaserPlugin", "de", title="Handgemacht", style="b")
+    publish(target, editor)
+    return target
+
+
+def test_an_existing_translation_with_the_same_plugins_is_written(
+    api, cloud, page, page_ref, editor
+):
+    from djangocms_ponyglot.delivery import needs_choice
+
+    published = hand_translated(page, editor, matching=True)
+    assert not needs_choice(page_ref, "de")
+    synced(api, cloud, page_ref)
+    draft = page_ref.latest("de")
+    assert draft.pk != published.pk and state_of(draft) == constants.DRAFT
+    assert "Agentur" in plugin_texts(draft, "de")
+    assert not Suggestion.objects.filter(status="pending").exists()
+
+
+def test_an_existing_translation_with_other_plugins_waits_for_a_choice(
+    api, cloud, page, page_ref, editor
+):
+    from djangocms_ponyglot.delivery import needs_choice
+
+    published = hand_translated(page, editor, matching=False)
+    assert needs_choice(page_ref, "de")
+    synced(api, cloud, page_ref)
+    assert page_ref.latest("de").pk == published.pk  # nothing written
+    assert not DraftDelivery.objects.exists()
+    assert Suggestion.objects.filter(status="pending", language="de").exists()
+    assert needs_choice(page_ref, "fr") is False  # no French content: copied from the source
+
+
+def test_choosing_to_keep_the_existing_translation(api, cloud, page, page_ref, editor):
+    from djangocms_ponyglot.delivery import needs_choice, waiting
+
+    published = hand_translated(page, editor, matching=False)
+    synced(api, cloud, page_ref)
+    suggestions.apply(list(waiting(page_ref, "de")), editor)  # "Add to existing German"
+    draft = page_ref.latest("de")
+    assert draft.pk != published.pk and state_of(draft) == constants.DRAFT
+    assert plugin_texts(draft, "de") == ["Handgemacht"]  # its own tree, nothing added
+    assert plugin_texts(published, "de") == ["Handgemacht"]
+    assert draft.title == "Preise"  # content fields are translated all the same
+    assert not needs_choice(page_ref, "de")  # decided: later deliveries go in directly
+    source_keys = set(plugin_keys.plugins_by_key(page_ref.published("en"), "en"))
+    assert source_keys <= set(DraftDelivery.objects.get(language="de").plugin_keys)
+
+
+def test_choosing_to_start_from_the_source(api, cloud, page, page_ref, editor):
+    published = hand_translated(page, editor, matching=False)
+    synced(api, cloud, page_ref)
+    live = Suggestion.objects.filter(language="de", status__in=["pending", "drafted"])
+    write(page_ref, "de", {s.field: s.text for s in live}, force=True, rebuild=True)
+    draft = page_ref.latest("de")
+    assert draft.pk != published.pk and state_of(draft) == constants.DRAFT
+    texts = plugin_texts(draft, "de")
+    assert "Agentur" in texts and "Handgemacht" not in texts
+    assert plugin_texts(published, "de") == ["Handgemacht"]  # until it's published
+    assert DraftDelivery.objects.get(language="de").unaligned == []
+
+
 def test_handshake_capabilities(api, cloud, page_ref):
     sync.run(api)
     assert cloud.handshakes[0]["capabilities"] == ["qa_errors", "whole_unit"]

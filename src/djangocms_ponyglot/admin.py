@@ -35,5 +35,10 @@ class PonyglotViewsAdmin(admin.ModelAdmin):
                 wrap(views.copy_tree),
                 name="djangocms_ponyglot_copy_tree",
             ),
+            path(
+                "unit/<str:key>/<str:language>/removed/",
+                wrap(views.removed),
+                name="djangocms_ponyglot_removed",
+            ),
             path("unit/<str:key>/exclude/", wrap(views.exclude), name="djangocms_ponyglot_exclude"),
         ]

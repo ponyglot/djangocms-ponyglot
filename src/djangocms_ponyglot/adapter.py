@@ -42,6 +42,27 @@ class DjangoCMSAdapter(Adapter):
         # Unversioned content: an editor applied it, and it is live.
         return "drafted" if ref.content_type.versioned else "applied"
 
+    def can_publish(self, user, obj, language=None):
+        """Publishing right away on request (ponyglot.publishing): only content with drafts and
+        one content object per language (a shared object publishes every language at once),
+        and only for editors djangocms-versioning lets publish it."""
+        ref = self.ref(obj)
+        ct = ref.content_type
+        if not (user and user.is_active and ct.versioned and ct.per_language):
+            return False
+        from djangocms_versioning.models import Version
+
+        content = (ref.latest(language) if language else None) or ref.current(
+            get_config().source_language
+        )
+        if content is None:
+            return False
+        version = Version.objects.get_for_content(content)
+        if hasattr(version, "has_publish_permission"):
+            return version.has_publish_permission(user)
+        meta = type(content)._meta
+        return user.has_perm(f"{meta.app_label}.change_{meta.model_name}")
+
     # --- Change detection (see also signals.py) ------------------------------------------
 
     def watched_models(self):

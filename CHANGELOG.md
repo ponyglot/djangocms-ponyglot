@@ -25,6 +25,10 @@ First release: Ponyglot for django CMS 5 (with djangocms-versioning). Depends on
 
 ### Editor workflow
 
+- **Publish right away** on request (cloud ADR 0022): a checkbox in the dialog and on the
+  status page; the draft is published in the requesting editor's name when the translation
+  arrives, for per-language content types, without QA errors, and if the draft holds only
+  these translations.
 - Translations arrive as drafts in their language. A draft only the connector wrote is updated
   in place; a draft someone edited is never overwritten: the translations wait for "Apply".
   Unversioned content is only written on "Apply" (writing would publish).
@@ -33,6 +37,13 @@ First release: Ponyglot for django CMS 5 (with djangocms-versioning). Depends on
 - Plugins new in the source are added to the translated drafts at the same place, with their
   children; plugins an editor removed from a translation stay removed. If the trees really
   differ, "Copy plugin tree from source" rebuilds the draft.
+- Three-way merge of plugin trees: plugins added to or moved in the source are added or moved
+  in the translations (moves an editor made in a translation win); plugins deleted from the
+  source wait for "Delete here too" or "Keep" in the dialog. Publishing the source merges moves
+  and text-free plugins right away.
+- A translation that existed before Ponyglot, with plugins that differ from the source, isn't
+  merged automatically: the dialog asks whether to add the translations to it or to start from
+  a copy of the source plugins.
 - Toolbar › *Ponyglot translations*: a dialog in the CMS modal, per language what to do next
   (translate, apply, review the draft), with the general actions in the modal footer.
   - It translates the version you're viewing, draft or published.

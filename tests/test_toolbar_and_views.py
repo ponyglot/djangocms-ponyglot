@@ -591,3 +591,57 @@ def test_documents_overview_links_to_the_status_page(
     html = admin_client.get("/en/admin/ponyglot/translationdashboard/documents/").content.decode()
     assert f'value="{prefix}"' in html  # the content type filter
     assert adapter.overview_order == 10  # django CMS first (core test: before Wagtail, models)
+
+
+def test_the_dialog_offers_the_choice_for_an_existing_translation(
+    staff, views_cloud, api, page, page_ref, editor
+):
+    from .test_content_types import hand_translated
+
+    hand_translated(page, editor, matching=False)
+    synced(api, views_cloud, page_ref)
+    html = staff.get(panel_url(page_ref)).content.decode()
+    assert "Add to existing German" in html and "Start from English" in html
+    assert f"{page_ref.key}/de/copy-tree/" in html
+    assert "Apply to draft" not in html  # the plain "Apply" is replaced by the choice
+    html = staff.get(status_url(page_ref)).content.decode()
+    assert "Add to existing German" in html and "Start from English" in html
+
+    response = staff.post(status_url(page_ref) + "de/copy-tree/", {"panel": "1"})
+    assert response.status_code == 302
+    html = staff.get(panel_url(page_ref)).content.decode()
+    assert "Add to existing German" not in html and "Review draft" in html
+
+
+@pytest.mark.parametrize("view", [status_url, panel_url])
+def test_publish_right_away_is_offered_and_sent(view, staff, views_cloud, api, article_ref, editor):
+    """ADR 0022: the checkbox sets the field of every translate form; the job carries it."""
+    sync.backfill()
+    sync.run(api)
+    html = staff.get(view(article_ref)).content.decode()
+    assert "Publish the translation right away" in html
+    assert 'name="publish" value=""' in html  # PUBLISH_BY_DEFAULT is off
+    staff.post(status_url(article_ref) + "translate/", {"languages": ["de"], "publish": "1"})
+    [job] = views_cloud.jobs.values()
+    assert (job["publish"], job["publish_as"]) == (True, str(editor.pk))
+
+
+def test_publish_right_away_survives_the_confirmation(staff, views_cloud, api, article_ref):
+    sync.backfill()
+    sync.run(api)
+    views_cloud.confirm_above = 0
+    response = staff.post(
+        status_url(article_ref) + "translate/", {"languages": ["de"], "publish": "1"}
+    )
+    assert footer(response.content.decode())["Translate"]["publish"] == ["1"]
+
+
+def test_publish_right_away_is_not_offered_for_shared_content(staff, views_cloud, api, note_ref):
+    sync.backfill()
+    sync.run(api)
+    assert (
+        "Publish the translation right away" not in staff.get(status_url(note_ref)).content.decode()
+    )
+    staff.post(status_url(note_ref) + "translate/", {"languages": ["de"], "publish": "1"})
+    [job] = views_cloud.jobs.values()
+    assert job["publish"] is False

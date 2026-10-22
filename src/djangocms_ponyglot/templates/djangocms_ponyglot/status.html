@@ -38,10 +38,30 @@
       {% endif %}
       {% for lang in todo.to_apply %}
         <li>{% blocktranslate count n=lang.waiting with code=lang.code|upper %}<strong>{{ code }}: {{ n }} translation is waiting to be applied.</strong>{% plural %}<strong>{{ code }}: {{ n }} translations are waiting to be applied.</strong>{% endblocktranslate %}
+          {% if lang.choose %}
+            {% blocktranslate with name=lang.name source=source_name %}{{ name }} was translated before, and its plugins differ from {{ source }}: keep them and fill in the translations where the plugins match, or replace them with a translated copy of the {{ source }} plugins?{% endblocktranslate %}
+            <form method="post" action="{% url 'admin:djangocms_ponyglot_apply' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}
+              <button type="submit" class="button">{% blocktranslate with name=lang.name %}Add to existing {{ name }}{% endblocktranslate %}</button>
+            </form>
+            <form method="post" action="{% url 'admin:djangocms_ponyglot_copy_tree' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}
+              <button type="submit" class="button">{% blocktranslate with source=source_name %}Start from {{ source }}{% endblocktranslate %}</button>
+            </form>
+          {% else %}
           <form method="post" action="{% url 'admin:djangocms_ponyglot_apply' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}
             <button type="submit" class="button default">{% if versioned %}{% translate "Apply to current draft" %}{% else %}{% translate "Apply (publishes)" %}{% endif %}</button>
           </form>
+          {% endif %}
           {% if versioned %}{% translate "Then switch to this language in the toolbar, check the draft and publish it." %}{% endif %}
+        </li>
+      {% endfor %}
+      {% for lang in todo.to_remove %}
+        <li>{% blocktranslate count n=lang.removed with code=lang.code|upper source=source_name %}<strong>{{ code }}: {{ n }} plugin was deleted from {{ source }}</strong> and is still in this translation.{% plural %}<strong>{{ code }}: {{ n }} plugins were deleted from {{ source }}</strong> and are still in this translation.{% endblocktranslate %}
+          <form method="post" action="{% url 'admin:djangocms_ponyglot_removed' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}
+            <button type="submit" class="button">{% translate "Delete here too" %}</button>
+          </form>
+          <form method="post" action="{% url 'admin:djangocms_ponyglot_removed' ref.key lang.code %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="keep" value="1">
+            <button type="submit" class="button">{% translate "Keep" %}</button>
+          </form>
         </li>
       {% endfor %}
       {% for lang in todo.to_publish %}
@@ -115,11 +135,13 @@
   {% endfor %}
 
   {% endif %}
+  {% if translate_due and not todo.translating %}{% include "admin/ponyglot/partials/publish_choice.html" %}{% endif %}
   {# One form per general action, with all its fields: the footer buttons submit them through #}
   {# form="…". django CMS submits them with form.submit(), so a button's own name/value isn't sent. #}
   <form id="ponyglot-translate" method="post" action="{% url 'admin:djangocms_ponyglot_translate' ref.key %}{{ keep_qs }}">{% csrf_token %}
     {% if cloud_status and todo.untranslated_languages %}{% for code in todo.untranslated_languages %}<input type="hidden" name="languages" value="{{ code }}">{% endfor %}
     {% else %}{% for lang in languages %}{% if not lang.excluded %}<input type="hidden" name="languages" value="{{ lang.code }}">{% endif %}{% endfor %}{% endif %}
+    {% include "admin/ponyglot/partials/publish_field.html" %}
     </form>
   <form id="ponyglot-fetch" method="post" action="{% url 'admin:djangocms_ponyglot_sync' ref.key %}{{ keep_qs }}">{% csrf_token %}</form>
   <form id="ponyglot-include" method="post" action="{% url 'admin:djangocms_ponyglot_exclude' ref.key %}{{ keep_qs }}">{% csrf_token %}<input type="hidden" name="include" value="1"></form>

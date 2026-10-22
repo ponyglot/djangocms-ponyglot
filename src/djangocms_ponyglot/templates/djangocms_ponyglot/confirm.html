@@ -8,6 +8,7 @@
     {% for code in languages %}<input type="hidden" name="languages" value="{{ code }}">{% endfor %}
     <input type="hidden" name="confirm" value="1">
     {% if panel %}<input type="hidden" name="panel" value="1">{% endif %}
+    {% if publish_requested %}<input type="hidden" name="publish" value="1">{% endif %}
   </form>
   {# Pulled into the CMS modal's footer. #}
   <div class="submit-row">

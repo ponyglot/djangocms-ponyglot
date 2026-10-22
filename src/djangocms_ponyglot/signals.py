@@ -5,7 +5,8 @@ Versioned content types (djangocms-versioning operations):
 - a new draft copied from a version inherits its plugin keys (every language it holds);
 - publishing or unpublishing source content marks the unit for the next sync (per-language
   content types: the source language's content; shared ones: any publication, as the source
-  plugins may have changed);
+  plugins may have changed); publishing per-language source content also carries its moved and
+  text-free new plugins into the translations' drafts (delivery.follow_source);
 - publishing target-language content is the approval: delivered texts are compared with what
   was published and reported (approved, with the editor's final text). Shared content types
   publish all languages at once, so every language with drafted translations is approved.
@@ -65,6 +66,10 @@ def version_operation(sender, operation, obj, **kwargs):
     is_source = not ct.per_language or content.language == source_language
     if is_source and operation in (constants.OPERATION_PUBLISH, constants.OPERATION_UNPUBLISH):
         state.mark_dirty(_adapter(), ref)
+    if is_source and ct.per_language and operation == constants.OPERATION_PUBLISH:
+        from .delivery import follow_source
+
+        follow_source(ref)
     targets = (
         [content.language]
         if ct.per_language and content.language != source_language
