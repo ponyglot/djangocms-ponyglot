@@ -23,6 +23,7 @@ from .fields import (
     content_fields,
     get_value,
     plugin_fields,
+    plugin_instance,
     set_value,
     slug_field,
 )
@@ -38,7 +39,7 @@ def _bound_plugins(content, language):
     bound = {}
     for slot, plugins in plugin_keys.plugins_by_slot(content, language).items():
         for plugin in plugins:
-            instance, _ = plugin.get_plugin_instance()
+            instance = plugin_instance(plugin)
             if instance is not None:
                 bound[plugin.pk] = (slot, plugin, instance)
     return bound
@@ -84,7 +85,7 @@ def keys_to_tags(text, targets):
         plugin = targets.get(match["id"])
         if plugin is None:
             return ""
-        instance, _ = plugin.get_plugin_instance()
+        instance = plugin_instance(plugin)
         label = child_label_field(instance) if instance is not None else None
         if label and match["content"].strip():
             set_value(instance, label, unescape(strip_tags(match["content"])).strip())
@@ -190,7 +191,7 @@ def write_values(ref, content, language, values):
     targets = plugin_keys.plugins_by_key(content, language)
     for plugin_key, fields in by_plugin.items():
         plugin = targets.get(plugin_key)
-        instance = plugin.get_plugin_instance()[0] if plugin is not None else None
+        instance = plugin_instance(plugin) if plugin is not None else None
         if instance is None:
             unaligned += [f"plugin:{plugin_key}:{name}" for name in fields]
             continue

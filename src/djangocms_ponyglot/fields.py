@@ -98,6 +98,16 @@ def _field(model, name):
         return None
 
 
+def plugin_instance(plugin):
+    """The plugin's instance, or None: if it has none, or if its plugin type isn't registered
+    (left behind by a removed plugin package; django CMS doesn't render those either)."""
+    try:
+        plugin.get_plugin_class()
+    except KeyError:
+        return None
+    return plugin.get_plugin_instance()[0]
+
+
 def get_value(instance, path):
     name, *keys = path.split(".")
     value = getattr(instance, name, None)

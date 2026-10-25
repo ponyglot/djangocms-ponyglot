@@ -54,7 +54,7 @@ from . import conf, merge
 from . import keys as plugin_keys
 from .adapter import align
 from .extract import texts, write_values
-from .fields import content_fields, get_value, plugin_fields
+from .fields import content_fields, get_value, plugin_fields, plugin_instance
 from .models import DraftDelivery
 
 
@@ -179,7 +179,7 @@ def _children(plugins):
 
 def _has_texts(plugins):
     for plugin in plugins:
-        instance = plugin.get_plugin_instance()[0]
+        instance = plugin_instance(plugin)
         if instance is None:
             continue
         for name in plugin_fields(instance):

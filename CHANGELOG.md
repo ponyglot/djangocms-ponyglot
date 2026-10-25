@@ -19,6 +19,8 @@ First release: Ponyglot for django CMS 5 (with djangocms-versioning). Depends on
   "Advanced settings", e.g. the image plugin's alt text) are translated; other attributes
   aren't. Fields validated as slugs or by a pattern (e.g. djangocms-form-builder's field
   names) count as identifiers, not prose.
+- Plugins whose type isn't registered (left behind by a removed plugin package) are skipped,
+  as django CMS skips them when rendering, instead of failing the sync.
 - `manage.py ponyglot_fields` lists the translated fields of every installed plugin type.
 - Stable plugin keys across versions and languages, so plugin ids changing with every version
   don't break translations.

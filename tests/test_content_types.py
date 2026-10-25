@@ -7,7 +7,7 @@
 
 import pytest
 from cms.api import add_plugin
-from cms.models import PageContent
+from cms.models import CMSPlugin, PageContent
 from djangocms_versioning import constants
 from djangocms_versioning.models import Version
 from ponyglot import exclusions, suggestions, sync
@@ -125,6 +125,20 @@ def test_djangocms_translations_declarations(page_ref, settings):
         "DJANGOCMS": {"PLUGINS": {"TeaserPlugin": {"excluded_fields": ["image_alt"]}}},
     }
     assert not any(k.endswith(":image_alt") for k in texts_in(page_ref, content, "en"))
+
+
+def test_plugins_of_unregistered_types_are_skipped(api, cloud, article_ref):
+    """Plugins left behind by a removed plugin package (django CMS doesn't render them)."""
+    content = article_ref.published("en")
+    placeholder = placeholder_of(content)
+    position = max(p.position for p in placeholder.get_plugins("en")) + 1
+    CMSPlugin.objects.create(
+        placeholder=placeholder, language="en", plugin_type="Module", position=position
+    )
+    assert {"title", "lead"} <= set(texts_in(article_ref, content, "en"))
+    sync.backfill()
+    sync.run(api)
+    assert article_ref.key in cloud.units
 
 
 def test_content_fields_are_configurable(article_ref, settings):
