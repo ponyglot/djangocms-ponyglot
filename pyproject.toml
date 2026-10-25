@@ -4,7 +4,7 @@ build-backend = "uv_build"
 
 [project]
 name = "djangocms-ponyglot"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "django CMS connector for Ponyglot: translate pages and plugins with glossary, translation memory and delta sync."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -14,7 +14,7 @@ requires-python = ">=3.10"
 dependencies = [
   "Django>=5.2",
   "django-cms>=5.1",
-  "ponyglot>=0.1.0.dev0",
+  "ponyglot>=0.1,<0.2",  # 0.x: a minor release may break
 ]
 classifiers = [
   "Development Status :: 3 - Alpha",
@@ -22,6 +22,7 @@ classifiers = [
   "Framework :: Django",
   "Framework :: Django :: 5.2",
   "Framework :: Django :: 6.0",
+  "Framework :: Django :: 6.1",
   "Framework :: Django CMS",
   "Framework :: Django CMS :: 5.1",
   "Intended Audience :: Developers",
@@ -33,6 +34,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: Content Management System",
   "Topic :: Software Development :: Localization",
 ]
@@ -50,11 +52,12 @@ dev = [
   "djangocms-text>=0.9",
   "djangocms-versioning>=2.7",
   "pytest>=8",
+  "pytest-cov>=6",
   "pytest-django>=4.9",
   "ruff>=0.12",
 ]
 
-# Until the core is released, develop against the checkout next to this repository.
+# Develop against the checkout next to this repository; built packages depend on the PyPI release.
 [tool.uv.sources]
 ponyglot = { path = "../ponyglot", editable = true }
 
@@ -62,6 +65,11 @@ ponyglot = { path = "../ponyglot", editable = true }
 DJANGO_SETTINGS_MODULE = "tests.settings"
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["djangocms_ponyglot"]
+branch = true
+omit = ["*/migrations/*"]
 
 [tool.ruff]
 line-length = 100
