@@ -2,7 +2,6 @@
 
 [![PyPI](https://img.shields.io/pypi/v/djangocms-ponyglot)](https://pypi.org/project/djangocms-ponyglot/)
 [![Coverage](https://codecov.io/gh/ponyglot/djangocms-ponyglot/branch/main/graph/badge.svg)](https://codecov.io/gh/ponyglot/djangocms-ponyglot)
-[![Python versions](https://img.shields.io/pypi/pyversions/djangocms-ponyglot)](https://pypi.org/project/djangocms-ponyglot/)
 [![Django versions](https://img.shields.io/pypi/frameworkversions/django/djangocms-ponyglot)](https://www.djangoproject.com/)
 [![django CMS versions](https://img.shields.io/pypi/frameworkversions/django-cms/djangocms-ponyglot)](https://www.django-cms.org/)
 
